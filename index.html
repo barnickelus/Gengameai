@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Genesis Evolution – AI World Engine</title>
+  <title>Genesis Evolution – AI World Engine v2</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <style>
@@ -72,19 +72,27 @@ let player = { x: 0, y: 0, radius: 15, mass: 10, tail: [] };
 let target = { x: 0, y: 0 };
 let offset = { x: W / 2, y: H / 2 };
 
-let food = [];
-let opponents = [];
+let food = [], opponents = [], hazards = [];
+let worldSize = 2000;
 
 function spawnFood() {
   if (food.length < 120) {
     food.push({
-      x: Math.random() * 2000 - 1000,
-      y: Math.random() * 2000 - 1000,
+      x: Math.random() * worldSize * 2 - worldSize,
+      y: Math.random() * worldSize * 2 - worldSize,
       radius: 5 + Math.random() * 5
     });
   }
 }
-
+function spawnFoodBurst(count = 30) {
+  for (let i = 0; i < count; i++) {
+    food.push({
+      x: player.x + Math.random() * 800 - 400,
+      y: player.y + Math.random() * 800 - 400,
+      radius: 5 + Math.random() * 5
+    });
+  }
+}
 function spawnPredator() {
   opponents.push({
     x: player.x + Math.random() * 400 - 200,
@@ -92,13 +100,12 @@ function spawnPredator() {
     radius: player.radius * 1.5
   });
 }
-
-function spawnDangerBlob() {
-  food.push({
+function spawnDanger(type) {
+  hazards.push({
     x: player.x + Math.random() * 400 - 200,
     y: player.y + Math.random() * 400 - 200,
-    radius: 20,
-    lava: true
+    radius: 150,
+    type: type
   });
 }
 
@@ -122,9 +129,9 @@ function drawCircle(obj, color) {
 
 function drawTile() {
   ctx.strokeStyle = '#222'; ctx.lineWidth = 1;
-  for (let i = -2000; i <= 2000; i += 50) {
-    ctx.beginPath(); ctx.moveTo(i, -2000); ctx.lineTo(i, 2000); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(-2000, i); ctx.lineTo(2000, i); ctx.stroke();
+  for (let i = -worldSize; i <= worldSize; i += 50) {
+    ctx.beginPath(); ctx.moveTo(i, -worldSize); ctx.lineTo(i, worldSize); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-worldSize, i); ctx.lineTo(worldSize, i); ctx.stroke();
   }
 }
 
@@ -154,6 +161,16 @@ function update() {
     else if (o.radius > player.radius && odist < 200) o.x += odx / odist * chaseSpeed, o.y += ody / odist * chaseSpeed;
   });
 
+  hazards.forEach(h => {
+    ctx.fillStyle = h.type === "poison" ? "#a00" : "#0cf";
+    drawCircle(h, ctx.fillStyle);
+    const d = Math.hypot(player.x - h.x, player.y - h.y);
+    if (d < h.radius) {
+      if (h.type === "poison") player.mass -= 0.02;
+      if (h.type === "slow") player.mass -= 0.01;
+    }
+  });
+
   player.radius = 10 + player.mass / 15;
   player.tail.unshift({ x: player.x, y: player.y });
   if (player.tail.length > player.mass / 3) player.tail.pop();
@@ -180,10 +197,13 @@ update();
 document.getElementById('aiPrompt').addEventListener('keydown', e => {
   if (e.key === 'Enter') {
     const cmd = e.target.value.toLowerCase();
-    if (cmd.includes("more food")) for (let i = 0; i < 20; i++) spawnFood();
+    if (cmd.includes("more food")) spawnFoodBurst(30);
     if (cmd.includes("predator")) spawnPredator();
-    if (cmd.includes("peaceful")) { opponents = []; for (let i = 0; i < 40; i++) spawnFood(); }
-    if (cmd.includes("danger")) for (let i = 0; i < 3; i++) spawnDangerBlob();
+    if (cmd.includes("peaceful")) { opponents = []; spawnFoodBurst(40); }
+    if (cmd.includes("danger")) spawnDanger("poison");
+    if (cmd.includes("freeze")) spawnDanger("slow");
+    if (cmd.includes("shrink")) worldSize = 1000;
+    if (cmd.includes("regrow")) worldSize = 2000;
     if (cmd.includes("night")) canvas.style.background = "radial-gradient(circle, #000 0%, #000 100%)";
     if (cmd.includes("day")) canvas.style.background = "radial-gradient(circle, #32005a 0%, #000 80%)";
     e.target.value = '';
@@ -204,6 +224,5 @@ function startMusic() {
 document.addEventListener('click', startMusic, { once: true });
 document.addEventListener('touchend', startMusic, { once: true });
 </script>
-
 </body>
 </html>
