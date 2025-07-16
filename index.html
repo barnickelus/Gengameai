@@ -40,185 +40,146 @@
 
 <script>
 /* ---------- Canvas ---------- */
-const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
-let W,H; function resize(){W=canvas.width=innerWidth;H=canvas.height=innerHeight;}
-addEventListener('resize',resize); resize();
+const c=document.getElementById('game'),ctx=c.getContext('2d');
+let W,H; function resize(){W=c.width=innerWidth;H=c.height=innerHeight;} resize();
+addEventListener('resize',resize);
 
-/* ---------- Player ---------- */
-let player={x:0,y:0,r:15,mass:10,tail:[],baseSpeed:2.5};
-let target={x:0,y:0}, offset={x:W/2,y:H/2};
+/* ---------- Player & camera ---------- */
+let P={x:0,y:0,r:15,mass:10,tail:[],baseSpeed:2.5};
+let tgt={x:0,y:0}, off={x:W/2,y:H/2};
 
-/* ---------- Food Pools ---------- */
-const neonFood=[], yellowFood=[];
-const NEON_COLORS=["#00e4b8","#0ff","#00faff","#22e"];
+/* ---------- Food & pill ---------- */
+const food=[], PILL_COLOR="#ff39ff";
+let pill={x:0,y:0,r:10,active:false,cooldown:0};
 
-/* initial spawn */
-for(let i=0;i<70;i++) spawnNeon(); 
-for(let i=0;i<60;i++) spawnYellow();
+/* ---------- Frenzy ---------- */
+let frenzy=false, frenzyTime=0, F_DURATION=10000;
 
-/* ---------- Spawn fns ---------- */
-function spawnNeon(){
-  neonFood.push({
-    baseR:90+Math.random()*200,
-    angle:Math.random()*Math.PI*2,
-    angV:0.002+Math.random()*0.004,
-    seed:Math.random()*Math.PI*2,
-    size:3,
-    col:NEON_COLORS[~~(Math.random()*NEON_COLORS.length)]
-  });
-}
-function spawnYellow(){
-  yellowFood.push({
-    baseR:250+Math.random()*600,
-    angle:Math.random()*Math.PI*2,
-    angV:0.0006+Math.random()*0.001,
-    size:6,
-    col:"#ff0"
-  });
+/* ---------- Utility ---------- */
+const rand=()=>Math.random()*1800-900;
+
+/* ---------- Spawn ---------- */
+for(let i=0;i<60;i++) food.push({x:rand(),y:rand(),r:6});
+function spawnPill(){
+  pill={x:rand(),y:rand(),r:10,active:true,cooldown:0};
 }
 
 /* ---------- Input ---------- */
-["mousedown","touchstart"].forEach(e=>canvas.addEventListener(e,setT));
-["mousemove","touchmove"].forEach(e=>canvas.addEventListener(e,e2=>e2.buttons&&setT(e2)));
-function setT(e){
-  const p=e.touches?e.touches[0]:e;
-  target.x=p.clientX-offset.x; target.y=p.clientY-offset.y;
-  e.preventDefault();
-}
+["mousedown","touchstart"].forEach(e=>c.addEventListener(e,setT,false));
+["mousemove","touchmove"].forEach(e=>c.addEventListener(e,e2=>e2.buttons&&setT(e2),false));
+function setT(e){const p=e.touches?e.touches[0]:e;tgt.x=p.clientX-off.x;tgt.y=p.clientY-off.y;e.preventDefault();}
 
-/* ---------- Loop ---------- */
-let last=0, level=1, flash=0;
+/* ---------- Main loop ---------- */
+let last=0,lvl=1,flash=0;
 function loop(t){
   const dt=(t-last)||16; last=t;
+  
+  /* --- Move player --- */
+  const dx=tgt.x-P.x,dy=tgt.y-P.y,d=Math.hypot(dx,dy);
+  const speed=P.baseSpeed*(1+0.1*(lvl-1))*(frenzy?1.3:1);
+  if(d>1){P.x+=dx/d*speed;P.y+=dy/d*speed;}
 
-  /* ------ Move player ------ */
-  const dx=target.x-player.x, dy=target.y-player.y, d=Math.hypot(dx,dy);
-  const maxV=player.baseSpeed*(1+0.1*(level-1));
-  if(d>1){ player.x+=dx/d*maxV; player.y+=dy/d*maxV; }
+  /* --- Decay proportional to size² --- */
+  const decay=Math.max(0.004,0.00002*P.r*P.r)*(1+0.1*(lvl-1));
+  P.mass=Math.max(5,P.mass-decay*dt);
 
-  /* ------ Update food positions ------ */
-  neonFood.forEach(f=>{
-    f.angle+=f.angV*dt;
-    f.x=Math.cos(f.angle)*f.baseR;
-    f.y=Math.sin(f.angle)*f.baseR;
-    f.size=2.5+Math.sin(t*0.002+f.seed)*1.5;
-  });
-  yellowFood.forEach(f=>{
-    f.angle+=f.angV*dt;
-    f.x=Math.cos(f.angle)*f.baseR;
-    f.y=Math.sin(f.angle)*f.baseR;
-  });
-
-  /* ------ Collisions ------ */
-  function eat(arr, gainFactor=1){
-    for(let i=arr.length-1;i>=0;i--){
-      const f=arr[i];
-      if(Math.hypot(player.x-f.x,player.y-f.y)<player.r+f.size){
-        player.mass+=f.size*gainFactor;
-        arr.splice(i,1);
-      }
+  /* --- Eat food --- */
+  for(let i=food.length-1;i>=0;i--){
+    const f=food[i];
+    const fx=frenzy ? orbitPos(f,t).x : f.x,
+          fy=frenzy ? orbitPos(f,t).y : f.y;
+    if(Math.hypot(P.x-fx,P.y-fy)<P.r+f.r){
+      P.mass+=f.r*1.2; food.splice(i,1);
     }
   }
-  eat(neonFood,1.4);  // neon more rewarding
-  eat(yellowFood,1.2);
+  while(food.length<60) food.push({x:rand(),y:rand(),r:6});
 
-  /* Respawn logic */
-  if(player.r<30 && neonFood.length<80) spawnNeon();
-  if(yellowFood.length<60) spawnYellow();
+  /* --- Eat pill --- */
+  if(pill.active && Math.hypot(P.x-pill.x,P.y-pill.y)<P.r+pill.r){
+    frenzy=true; frenzyTime=F_DURATION; pill.active=false;
+  }
 
-  /* ------ Mass decay ------ */
-  const decay=Math.max(0.004,0.00002*player.r*player.r)*(1+0.1*(level-1));
-  player.mass=Math.max(5,player.mass-decay*dt);
+  /* --- Frenzy timer --- */
+  if(frenzy){
+    frenzyTime-=dt;
+    if(frenzyTime<=0){ frenzy=false; }
+  }else{
+    if(!pill.active){ pill.cooldown+=dt; if(pill.cooldown>25000+Math.random()*10000) spawnPill(); }
+  }
 
-  /* ------ Size & tail ------ */
-  player.r=10+player.mass/15;
-  player.tail.unshift({x:player.x,y:player.y});
-  if(player.tail.length>player.mass/3) player.tail.pop();
+  /* --- Size & tail --- */
+  P.r=10+P.mass/15;
+  P.tail.unshift({x:P.x,y:P.y});
+  if(P.tail.length>P.mass/3) P.tail.pop();
 
-  /* ------ Leveling ------ */
-  const newLvl=Math.floor(player.mass/100)+1;
-  if(newLvl>level){level=newLvl;flash=30;}
+  /* --- Level check --- */
+  const newLvl=Math.floor(P.mass/100)+1;
+  if(newLvl>lvl){lvl=newLvl;flash=30;}
 
-  /* ------ Camera ------ */
-  offset.x=W/2-player.x; offset.y=H/2-player.y;
-  ctx.setTransform(1,0,0,1,offset.x,offset.y);
-  ctx.clearRect(-offset.x,-offset.y,W,H);
+  /* --- Camera --- */
+  off.x=W/2-P.x; off.y=H/2-P.y;
+  ctx.setTransform(1,0,0,1,off.x,off.y);
+  ctx.clearRect(-off.x,-off.y,W,H);
 
-  /* ------ Draw background ------ */
+  /* --- Background lattice --- */
   drawTesseract();
-  drawNeon(t);
-  drawYellow();
 
-  /* ------ Draw player & tail ------ */
-  player.tail.forEach((p,i)=>drawCircle(
-    {x:p.x,y:p.y,r:player.r*(1-i/player.tail.length)},
-    `rgba(0,228,184,${0.7-i/player.tail.length})`));
-  drawCircle(player,"#00e4b8");
+  /* --- Draw food --- */
+  food.forEach(f=>{
+    const pos=frenzy?orbitPos(f,t):f;
+    drawGlowDot(pos.x,pos.y,f.r,frenzy?"#00e4b8":"#ff0",frenzy?0.8:0.6);
+  });
 
-  /* ------ HUD ------ */
-  document.getElementById('mass').textContent=player.mass.toFixed(0);
-  document.getElementById('score').textContent=Math.floor(player.mass*10);
-  const lvl=document.getElementById('level');
-  lvl.textContent=level; lvl.style.color=flash&&flash--%2?"#ff0":"#fff";
+  /* --- Draw pill --- */
+  if(pill.active) drawGlowDot(pill.x,pill.y,pill.r,PILL_COLOR,0.9);
+
+  /* --- Draw player & trail --- */
+  P.tail.forEach((p,i)=>drawGlowDot(p.x,p.y,P.r*(1-i/P.tail.length),"#00e4b8",0.25));
+  drawGlowDot(P.x,P.y,P.r,"#00e4b8",1);
+
+  /* --- HUD --- */
+  document.getElementById('mass').textContent=P.mass.toFixed(0);
+  document.getElementById('score').textContent=Math.floor(P.mass*10);
+  const l=document.getElementById('level');
+  l.textContent=frenzy?`FRENZY ${Math.ceil(frenzyTime/1000)}`:lvl;
+  l.style.color=frenzy?"#ff39ff":flash&&flash--%2?"#ff0":"#fff";
 
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
-/* ---------- Render helpers ---------- */
-function drawCircle(o,c){
-  ctx.fillStyle=c; ctx.beginPath(); ctx.arc(o.x,o.y,o.r,0,Math.PI*2); ctx.fill();
+/* ---------- Helpers ---------- */
+function orbitPos(f,t){
+  const a=f.seed||(f.seed=Math.random()*Math.PI*2);
+  const ang=a+t*0.004, r=120+Math.sin(a+t*0.002)*60;
+  return {x:Math.cos(ang)*r,y:Math.sin(ang)*r};
 }
-function drawNeon(t){
-  neonFood.forEach(f=>{
-    ctx.globalAlpha=0.7;
-    ctx.shadowBlur=12; ctx.shadowColor=f.col;
-    ctx.fillStyle=f.col;
-    ctx.beginPath(); ctx.arc(f.x,f.y,f.size,0,Math.PI*2); ctx.fill();
-    ctx.shadowBlur=0; ctx.globalAlpha=1;
-  });
+function drawGlowDot(x,y,r,col,alpha){
+  ctx.globalAlpha=alpha;
+  ctx.shadowBlur=12; ctx.shadowColor=col;
+  ctx.fillStyle=col; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+  ctx.shadowBlur=0; ctx.globalAlpha=1;
 }
-function drawYellow(){
-  yellowFood.forEach(f=>{
-    ctx.globalAlpha=0.8;
-    ctx.shadowBlur=8; ctx.shadowColor="#ffea00";
-    ctx.fillStyle="#ffea00";
-    ctx.beginPath(); ctx.arc(f.x,f.y,f.size,0,Math.PI*2); ctx.fill();
-    ctx.shadowBlur=0; ctx.globalAlpha=1;
-  });
-}
-
-/* --- Tesseract grid: perspective cubes fading out --- */
 function drawTesseract(){
   ctx.strokeStyle="#111"; ctx.lineWidth=1.2;
   const step=120, depth=6;
   for(let z=0;z<depth;z++){
-    const s=(1+z*0.15);
-    const col=`rgba(34,34,34,${0.8-0.12*z})`;
-    ctx.strokeStyle=col;
-    for(let i=-4;i<=4;i++){
-      for(let j=-4;j<=4;j++){
-        const x=i*step*s, y=j*step*s;
-        cube(x,y,step*s);
-      }
-    }
+    const s=1+z*0.15, opa=0.8-0.12*z;
+    ctx.strokeStyle=`rgba(34,34,34,${opa})`;
+    for(let i=-4;i<=4;i++) for(let j=-4;j<=4;j++) cube(i*step*s,j*step*s,step*s);
   }
   function cube(x,y,s){
-    ctx.beginPath();
-    ctx.moveTo(x,y); ctx.lineTo(x+s,y);
-    ctx.lineTo(x+s,y+s); ctx.lineTo(x,y+s); ctx.closePath(); ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x,y); ctx.lineTo(x-s*0.4,y-s*0.4);
+    ctx.beginPath(); ctx.rect(x,y,s,s); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x-s*0.4,y-s*0.4);
     ctx.lineTo(x-s*0.4+s,y-s*0.4); ctx.lineTo(x+s,y); ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x+s,y); ctx.lineTo(x+s+s*0.4,y-s*0.4);
+    ctx.beginPath(); ctx.moveTo(x+s,y); ctx.lineTo(x+s+s*0.4,y-s*0.4);
     ctx.lineTo(x+s+s*0.4-s,y-s*0.4+s); ctx.lineTo(x+s,y+s); ctx.stroke();
   }
 }
 
-/* ---------- Music trigger (unchanged) ---------- */
+/* ---------- Music trigger ---------- */
 function startMusic(){const a=document.getElementById('backgroundMusic');if(a&&a.paused)a.play().catch(()=>{});}
-addEventListener('click',startMusic,{once:true});addEventListener('touchend',startMusic,{once:true});
+addEventListener('click',startMusic,{once:true}); addEventListener('touchend',startMusic,{once:true});
 </script>
 </body>
 </html>
