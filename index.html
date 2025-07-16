@@ -39,167 +39,142 @@
 <audio id="backgroundMusic" src="background-music.mp3" loop preload="auto"></audio>
 
 <script>
+/* ------------------ Canvas & Resize ------------------ */
 const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
-let W, H;
+let W, H; function resize(){ W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+addEventListener('resize', resize); resize();
 
-function resize() {
-  W = canvas.width = window.innerWidth;
-  H = canvas.height = window.innerHeight;
-}
-window.addEventListener('resize', resize); resize();
+/* ------------------ Player & World ------------------ */
+let player = {x:0,y:0,r:15,mass:10,tail:[],speed:2.5};
+let target = {x:0,y:0}, offset = {x:W/2,y:H/2};
+let food=[], foes=[];
 
-// Game variables
-let player = { x: 0, y: 0, radius: 15, mass: 10, tail: [] };
-let target = { x: 0, y: 0 };
-let offset = { x: W/2, y: H/2 };
-let food = [], opponents = [];
+/* ------------------ Neon Particle System ------------ */
+const PAL = ["#00e4b8","#0ff","#00faff","#22e"];
+const particles = Array.from({length:90},(_,i)=>({
+  baseR:90+Math.random()*180,
+  angle:Math.random()*Math.PI*2,
+  angV:0.001+Math.random()*0.005,
+  size:1.5+Math.random()*2,
+  seed:Math.random()*Math.PI*2
+}));
 
-// Neon particles
-const particles = [];
-for (let i = 0; i < 60; i++) {
-  particles.push({
-    angle: Math.random() * Math.PI * 2,
-    radius: 80 + Math.random() * 140,
-    speed: 0.002 + Math.random() * 0.006,
-    size: 1 + Math.random() * 3,
-    color: ["#00e4b8", "#0ff", "#00faff", "#22e"][Math.floor(Math.random() * 4)]
-  });
-}
-
-function updateParticles() {
-  particles.forEach(p => {
-    p.angle += p.speed;
-    const px = player.x + Math.cos(p.angle) * p.radius;
-    const py = player.y + Math.sin(p.angle) * p.radius;
-
-    ctx.beginPath();
-    ctx.arc(px, py, p.size, 0, Math.PI * 2);
+function drawNeonParticles(t){
+  particles.forEach(p=>{
+    p.angle+=p.angV;
+    const pulse= Math.sin(t*0.001 + p.seed)*15;
+    const r = p.baseR + pulse;
+    const x = r*Math.cos(p.angle);
+    const y = r*Math.sin(p.angle);
+    const hue = PAL[(~~( (p.angle+p.seed)*2 ))%PAL.length];
+    ctx.globalAlpha = 0.6 + 0.4*Math.sin(t*0.002+p.seed);
     ctx.shadowBlur = 12;
-    ctx.shadowColor = p.color;
-    ctx.fillStyle = p.color;
-    ctx.globalAlpha = 0.6;
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
+    ctx.shadowColor = hue;
+    ctx.fillStyle = hue;
+    ctx.beginPath(); ctx.arc(x,y,p.size,0,Math.PI*2); ctx.fill();
   });
+  ctx.shadowBlur = 0; ctx.globalAlpha = 1;
 }
 
-function spawnFood() {
-  if (food.length < 60) {
-    food.push({ x: Math.random() * 2000 - 1000, y: Math.random() * 2000 - 1000, radius: 5 + Math.random() * 5 });
+/* ------------------ Spawning Helpers ---------------- */
+function spawnFood(){ if(food.length<70) food.push({x:rand(),y:rand(),r:5+Math.random()*5}); }
+function spawnFoe (){
+  if(foes.length<12){
+    const far = 600+player.mass;                 // spawn further as you grow
+    foes.push({x:randFar(far),y:randFar(far),r:10+Math.random()*20});
   }
 }
+function rand(){return Math.random()*2000-1000;}
+function randFar(d){return (Math.random()<0.5?-1:1)*(d+Math.random()*500);}
 
-function spawnOpponents() {
-  if (opponents.length < 12) {
-    opponents.push({ x: Math.random() * 2000 - 1000, y: Math.random() * 2000 - 1000, radius: 10 + Math.random() * 20 });
-  }
-}
-
-canvas.addEventListener('touchstart', setTarget, false);
-canvas.addEventListener('touchmove', setTarget, false);
-canvas.addEventListener('mousedown', setTarget, false);
-canvas.addEventListener('mousemove', e => { if (e.buttons) setTarget(e); }, false);
-
-function setTarget(e) {
+/* ------------------ Input --------------------------- */
+["mousedown","touchstart"].forEach(ev=>canvas.addEventListener(ev,setTarget));
+["mousemove","touchmove"].forEach(ev=>canvas.addEventListener(ev,e=>e.buttons&&setTarget(e)));
+function setTarget(e){
+  const p=e.touches?e.touches[0]:e;
+  target.x = p.clientX-offset.x; target.y = p.clientY-offset.y;
   e.preventDefault();
-  const touch = e.touches ? e.touches[0] : e;
-  target.x = touch.clientX - offset.x;
-  target.y = touch.clientY - offset.y;
 }
 
-function drawCircle(obj, color) {
-  ctx.fillStyle = color;
-  ctx.beginPath(); ctx.arc(obj.x, obj.y, obj.radius, 0, Math.PI * 2); ctx.fill();
-}
+/* ------------------ Game Loop ----------------------- */
+let last=0, level=1, flash=0;
+function loop(t){
+  const dt = (t-last)||16; last=t;
+  const dx=target.x-player.x, dy=target.y-player.y, dist=Math.hypot(dx,dy);
+  const maxSpeed = player.speed * (1+0.1*(level-1));
+  if(dist>1){ player.x+=dx/dist*maxSpeed; player.y+=dy/dist*maxSpeed; }
 
-function drawTile() {
-  ctx.strokeStyle = "#111";
-  ctx.lineWidth = 1;
-  for (let i = -2000; i <= 2000; i += 50) {
-    ctx.beginPath(); ctx.moveTo(i, -2000); ctx.lineTo(i, 2000); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(-2000, i); ctx.lineTo(2000, i); ctx.stroke();
-  }
-}
+  /* Decay proportional to size² */
+  const decay = Math.max(0.004, 0.00002*player.r*player.r)*(1+0.1*(level-1));
+  player.mass = Math.max(5, player.mass - decay*dt);
 
-function update() {
-  const speed = 2.5;
-  const dx = target.x - player.x, dy = target.y - player.y, dist = Math.hypot(dx, dy);
-  if (dist > 1) {
-    player.x += dx / dist * speed;
-    player.y += dy / dist * speed;
-    player.mass -= 0.003 * (1 - player.tail.length / 75);
-  }
-
-  food.forEach((f, i) => {
-    if (Math.hypot(player.x - f.x, player.y - f.y) < player.radius + f.radius) {
-      player.mass += f.radius;
-      food.splice(i, 1);
+  /* Collisions */
+  food.forEach((f,i)=>{
+    if(Math.hypot(player.x-f.x,player.y-f.y)<player.r+f.r){
+      player.mass += f.r*1.2; food.splice(i,1);
     }
   });
-
-  opponents.forEach((o, i) => {
-    const odx = player.x - o.x, ody = player.y - o.y, odist = Math.hypot(odx, ody);
-    if (player.radius > o.radius && odist < player.radius) {
-      player.mass += o.radius / 2;
-      opponents.splice(i, 1);
-    } else if (o.radius > player.radius && odist < o.radius) {
-      player.mass -= 0.05;
-    }
-    const chaseSpeed = 1;
-    if (o.radius < player.radius && odist < 200) {
-      o.x += odx / odist * -chaseSpeed;
-      o.y += ody / odist * -chaseSpeed;
-    } else if (o.radius > player.radius && odist < 200) {
-      o.x += odx / odist * chaseSpeed;
-      o.y += ody / odist * chaseSpeed;
-    }
+  foes.forEach((fo,i)=>{
+    const d=Math.hypot(player.x-fo.x,player.y-fo.y);
+    if(player.r>fo.r && d<player.r){ player.mass += fo.r/2; foes.splice(i,1); }
+    else if(fo.r>player.r && d<fo.r){ player.mass = Math.max(5,player.mass-0.08*dt);}
+    const chase=1;
+    if(fo.r<player.r && d<250){ fo.x-= (player.x-fo.x)/d*chase; fo.y-= (player.y-fo.y)/d*chase;}
+    else if(fo.r>player.r && d<250){ fo.x+=(player.x-fo.x)/d*chase; fo.y+=(player.y-fo.y)/d*chase;}
   });
 
-  player.radius = 10 + player.mass / 15;
-  player.tail.unshift({ x: player.x, y: player.y });
-  if (player.tail.length > player.mass / 3) player.tail.pop();
+  /* Update size & tail */
+  player.r = 10 + player.mass/15;
+  player.tail.unshift({x:player.x,y:player.y});
+  if(player.tail.length > player.mass/3) player.tail.pop();
 
-  offset.x = W / 2 - player.x;
-  offset.y = H / 2 - player.y;
+  /* Level check */
+  const newLvl = Math.floor(player.mass/100)+1;
+  if(newLvl>level){ level=newLvl; flash=30; }
 
-  ctx.setTransform(1, 0, 0, 1, offset.x, offset.y);
-  ctx.clearRect(-offset.x, -offset.y, W, H);
+  /* Camera offset */
+  offset.x = W/2 - player.x; offset.y = H/2 - player.y;
+  ctx.setTransform(1,0,0,1,offset.x,offset.y);
+  ctx.clearRect(-offset.x,-offset.y,W,H);
 
-  drawTile();
-  updateParticles();
+  /* Render layers */
+  drawTile();                    // dark grid
+  drawNeonParticles(t);          // glowing background
+  food.forEach(f=>drawCircle(f,'#ff0'));
+  foes.forEach(o=>drawCircle(o,'#f00'));
+  drawTail();
+  drawCircle(player,'#00e4b8');
 
-  food.forEach(f => drawCircle(f, '#ff0'));
-  opponents.forEach(o => drawCircle(o, '#f00'));
-  player.tail.forEach((t, i) => drawCircle(
-    { x: t.x, y: t.y, radius: player.radius * (1 - i / player.tail.length) },
-    'rgba(0,228,184,' + (0.8 - i / player.tail.length) + ')'
-  ));
-  drawCircle(player, '#00e4b8');
+  /* HUD */
+  document.getElementById('mass').textContent = player.mass.toFixed(0);
+  document.getElementById('score').textContent = Math.floor(player.mass*10);
+  const lvlNode = document.getElementById('level');
+  lvlNode.textContent = level;
+  if(flash>0){ lvlNode.style.color = flash%2?"#ff0":"#fff"; flash--; }
+  else lvlNode.style.color="#fff";
 
-  document.getElementById('mass').textContent = player.mass.toFixed(1);
-  document.getElementById('score').textContent = Math.floor(player.mass);
-
-  spawnFood();
-  spawnOpponents();
-
-  requestAnimationFrame(update);
+  spawnFood(); spawnFoe();
+  requestAnimationFrame(loop);
 }
-update();
+requestAnimationFrame(loop);
 
-// 🎵 Start music on click/touch
-function startMusic() {
-  const bgm = document.getElementById('backgroundMusic');
-  if (bgm && bgm.paused) {
-    bgm.volume = 1;
-    const p = bgm.play();
-    if (p !== undefined) {
-      p.catch(err => console.warn("Audio blocked:", err));
-    }
+/* ------------------ Draw Helpers ------------------- */
+function drawCircle(o,c){ ctx.fillStyle=c; ctx.beginPath(); ctx.arc(o.x,o.y,o.r,0,Math.PI*2); ctx.fill(); }
+function drawTail(){ player.tail.forEach((p,i)=>drawCircle(
+  {x:p.x,y:p.y,r:player.r*(1-i/player.tail.length)},
+  `rgba(0,228,184,${0.7-i/player.tail.length})`
+));}
+function drawTile(){
+  ctx.strokeStyle="#111"; ctx.lineWidth=1;
+  for(let i=-2000;i<=2000;i+=50){
+    ctx.beginPath(); ctx.moveTo(i,-2000); ctx.lineTo(i,2000); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-2000,i); ctx.lineTo(2000,i); ctx.stroke();
   }
 }
-document.addEventListener('click', startMusic, { once: true });
-document.addEventListener('touchend', startMusic, { once: true });
+
+/* ------------------ Music Trigger ------------------ */
+function startMusic(){ const m=document.getElementById('backgroundMusic'); if(m&&m.paused)m.play().catch(()=>{}); }
+addEventListener('click',startMusic,{once:true}); addEventListener('touchend',startMusic,{once:true});
 </script>
 </body>
 </html>
