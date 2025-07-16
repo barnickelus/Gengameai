@@ -39,142 +39,186 @@
 <audio id="backgroundMusic" src="background-music.mp3" loop preload="auto"></audio>
 
 <script>
-/* ------------------ Canvas & Resize ------------------ */
+/* ---------- Canvas ---------- */
 const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
-let W, H; function resize(){ W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
-addEventListener('resize', resize); resize();
+let W,H; function resize(){W=canvas.width=innerWidth;H=canvas.height=innerHeight;}
+addEventListener('resize',resize); resize();
 
-/* ------------------ Player & World ------------------ */
-let player = {x:0,y:0,r:15,mass:10,tail:[],speed:2.5};
-let target = {x:0,y:0}, offset = {x:W/2,y:H/2};
-let food=[], foes=[];
+/* ---------- Player ---------- */
+let player={x:0,y:0,r:15,mass:10,tail:[],baseSpeed:2.5};
+let target={x:0,y:0}, offset={x:W/2,y:H/2};
 
-/* ------------------ Neon Particle System ------------ */
-const PAL = ["#00e4b8","#0ff","#00faff","#22e"];
-const particles = Array.from({length:90},(_,i)=>({
-  baseR:90+Math.random()*180,
-  angle:Math.random()*Math.PI*2,
-  angV:0.001+Math.random()*0.005,
-  size:1.5+Math.random()*2,
-  seed:Math.random()*Math.PI*2
-}));
+/* ---------- Food Pools ---------- */
+const neonFood=[], yellowFood=[];
+const NEON_COLORS=["#00e4b8","#0ff","#00faff","#22e"];
 
-function drawNeonParticles(t){
-  particles.forEach(p=>{
-    p.angle+=p.angV;
-    const pulse= Math.sin(t*0.001 + p.seed)*15;
-    const r = p.baseR + pulse;
-    const x = r*Math.cos(p.angle);
-    const y = r*Math.sin(p.angle);
-    const hue = PAL[(~~( (p.angle+p.seed)*2 ))%PAL.length];
-    ctx.globalAlpha = 0.6 + 0.4*Math.sin(t*0.002+p.seed);
-    ctx.shadowBlur = 12;
-    ctx.shadowColor = hue;
-    ctx.fillStyle = hue;
-    ctx.beginPath(); ctx.arc(x,y,p.size,0,Math.PI*2); ctx.fill();
+/* initial spawn */
+for(let i=0;i<70;i++) spawnNeon(); 
+for(let i=0;i<60;i++) spawnYellow();
+
+/* ---------- Spawn fns ---------- */
+function spawnNeon(){
+  neonFood.push({
+    baseR:90+Math.random()*200,
+    angle:Math.random()*Math.PI*2,
+    angV:0.002+Math.random()*0.004,
+    seed:Math.random()*Math.PI*2,
+    size:3,
+    col:NEON_COLORS[~~(Math.random()*NEON_COLORS.length)]
   });
-  ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+}
+function spawnYellow(){
+  yellowFood.push({
+    baseR:250+Math.random()*600,
+    angle:Math.random()*Math.PI*2,
+    angV:0.0006+Math.random()*0.001,
+    size:6,
+    col:"#ff0"
+  });
 }
 
-/* ------------------ Spawning Helpers ---------------- */
-function spawnFood(){ if(food.length<70) food.push({x:rand(),y:rand(),r:5+Math.random()*5}); }
-function spawnFoe (){
-  if(foes.length<12){
-    const far = 600+player.mass;                 // spawn further as you grow
-    foes.push({x:randFar(far),y:randFar(far),r:10+Math.random()*20});
-  }
-}
-function rand(){return Math.random()*2000-1000;}
-function randFar(d){return (Math.random()<0.5?-1:1)*(d+Math.random()*500);}
-
-/* ------------------ Input --------------------------- */
-["mousedown","touchstart"].forEach(ev=>canvas.addEventListener(ev,setTarget));
-["mousemove","touchmove"].forEach(ev=>canvas.addEventListener(ev,e=>e.buttons&&setTarget(e)));
-function setTarget(e){
+/* ---------- Input ---------- */
+["mousedown","touchstart"].forEach(e=>canvas.addEventListener(e,setT));
+["mousemove","touchmove"].forEach(e=>canvas.addEventListener(e,e2=>e2.buttons&&setT(e2)));
+function setT(e){
   const p=e.touches?e.touches[0]:e;
-  target.x = p.clientX-offset.x; target.y = p.clientY-offset.y;
+  target.x=p.clientX-offset.x; target.y=p.clientY-offset.y;
   e.preventDefault();
 }
 
-/* ------------------ Game Loop ----------------------- */
+/* ---------- Loop ---------- */
 let last=0, level=1, flash=0;
 function loop(t){
-  const dt = (t-last)||16; last=t;
-  const dx=target.x-player.x, dy=target.y-player.y, dist=Math.hypot(dx,dy);
-  const maxSpeed = player.speed * (1+0.1*(level-1));
-  if(dist>1){ player.x+=dx/dist*maxSpeed; player.y+=dy/dist*maxSpeed; }
+  const dt=(t-last)||16; last=t;
 
-  /* Decay proportional to size² */
-  const decay = Math.max(0.004, 0.00002*player.r*player.r)*(1+0.1*(level-1));
-  player.mass = Math.max(5, player.mass - decay*dt);
+  /* ------ Move player ------ */
+  const dx=target.x-player.x, dy=target.y-player.y, d=Math.hypot(dx,dy);
+  const maxV=player.baseSpeed*(1+0.1*(level-1));
+  if(d>1){ player.x+=dx/d*maxV; player.y+=dy/d*maxV; }
 
-  /* Collisions */
-  food.forEach((f,i)=>{
-    if(Math.hypot(player.x-f.x,player.y-f.y)<player.r+f.r){
-      player.mass += f.r*1.2; food.splice(i,1);
+  /* ------ Update food positions ------ */
+  neonFood.forEach(f=>{
+    f.angle+=f.angV*dt;
+    f.x=Math.cos(f.angle)*f.baseR;
+    f.y=Math.sin(f.angle)*f.baseR;
+    f.size=2.5+Math.sin(t*0.002+f.seed)*1.5;
+  });
+  yellowFood.forEach(f=>{
+    f.angle+=f.angV*dt;
+    f.x=Math.cos(f.angle)*f.baseR;
+    f.y=Math.sin(f.angle)*f.baseR;
+  });
+
+  /* ------ Collisions ------ */
+  function eat(arr, gainFactor=1){
+    for(let i=arr.length-1;i>=0;i--){
+      const f=arr[i];
+      if(Math.hypot(player.x-f.x,player.y-f.y)<player.r+f.size){
+        player.mass+=f.size*gainFactor;
+        arr.splice(i,1);
+      }
     }
-  });
-  foes.forEach((fo,i)=>{
-    const d=Math.hypot(player.x-fo.x,player.y-fo.y);
-    if(player.r>fo.r && d<player.r){ player.mass += fo.r/2; foes.splice(i,1); }
-    else if(fo.r>player.r && d<fo.r){ player.mass = Math.max(5,player.mass-0.08*dt);}
-    const chase=1;
-    if(fo.r<player.r && d<250){ fo.x-= (player.x-fo.x)/d*chase; fo.y-= (player.y-fo.y)/d*chase;}
-    else if(fo.r>player.r && d<250){ fo.x+=(player.x-fo.x)/d*chase; fo.y+=(player.y-fo.y)/d*chase;}
-  });
+  }
+  eat(neonFood,1.4);  // neon more rewarding
+  eat(yellowFood,1.2);
 
-  /* Update size & tail */
-  player.r = 10 + player.mass/15;
+  /* Respawn logic */
+  if(player.r<30 && neonFood.length<80) spawnNeon();
+  if(yellowFood.length<60) spawnYellow();
+
+  /* ------ Mass decay ------ */
+  const decay=Math.max(0.004,0.00002*player.r*player.r)*(1+0.1*(level-1));
+  player.mass=Math.max(5,player.mass-decay*dt);
+
+  /* ------ Size & tail ------ */
+  player.r=10+player.mass/15;
   player.tail.unshift({x:player.x,y:player.y});
-  if(player.tail.length > player.mass/3) player.tail.pop();
+  if(player.tail.length>player.mass/3) player.tail.pop();
 
-  /* Level check */
-  const newLvl = Math.floor(player.mass/100)+1;
-  if(newLvl>level){ level=newLvl; flash=30; }
+  /* ------ Leveling ------ */
+  const newLvl=Math.floor(player.mass/100)+1;
+  if(newLvl>level){level=newLvl;flash=30;}
 
-  /* Camera offset */
-  offset.x = W/2 - player.x; offset.y = H/2 - player.y;
+  /* ------ Camera ------ */
+  offset.x=W/2-player.x; offset.y=H/2-player.y;
   ctx.setTransform(1,0,0,1,offset.x,offset.y);
   ctx.clearRect(-offset.x,-offset.y,W,H);
 
-  /* Render layers */
-  drawTile();                    // dark grid
-  drawNeonParticles(t);          // glowing background
-  food.forEach(f=>drawCircle(f,'#ff0'));
-  foes.forEach(o=>drawCircle(o,'#f00'));
-  drawTail();
-  drawCircle(player,'#00e4b8');
+  /* ------ Draw background ------ */
+  drawTesseract();
+  drawNeon(t);
+  drawYellow();
 
-  /* HUD */
-  document.getElementById('mass').textContent = player.mass.toFixed(0);
-  document.getElementById('score').textContent = Math.floor(player.mass*10);
-  const lvlNode = document.getElementById('level');
-  lvlNode.textContent = level;
-  if(flash>0){ lvlNode.style.color = flash%2?"#ff0":"#fff"; flash--; }
-  else lvlNode.style.color="#fff";
+  /* ------ Draw player & tail ------ */
+  player.tail.forEach((p,i)=>drawCircle(
+    {x:p.x,y:p.y,r:player.r*(1-i/player.tail.length)},
+    `rgba(0,228,184,${0.7-i/player.tail.length})`));
+  drawCircle(player,"#00e4b8");
 
-  spawnFood(); spawnFoe();
+  /* ------ HUD ------ */
+  document.getElementById('mass').textContent=player.mass.toFixed(0);
+  document.getElementById('score').textContent=Math.floor(player.mass*10);
+  const lvl=document.getElementById('level');
+  lvl.textContent=level; lvl.style.color=flash&&flash--%2?"#ff0":"#fff";
+
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
-/* ------------------ Draw Helpers ------------------- */
-function drawCircle(o,c){ ctx.fillStyle=c; ctx.beginPath(); ctx.arc(o.x,o.y,o.r,0,Math.PI*2); ctx.fill(); }
-function drawTail(){ player.tail.forEach((p,i)=>drawCircle(
-  {x:p.x,y:p.y,r:player.r*(1-i/player.tail.length)},
-  `rgba(0,228,184,${0.7-i/player.tail.length})`
-));}
-function drawTile(){
-  ctx.strokeStyle="#111"; ctx.lineWidth=1;
-  for(let i=-2000;i<=2000;i+=50){
-    ctx.beginPath(); ctx.moveTo(i,-2000); ctx.lineTo(i,2000); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(-2000,i); ctx.lineTo(2000,i); ctx.stroke();
+/* ---------- Render helpers ---------- */
+function drawCircle(o,c){
+  ctx.fillStyle=c; ctx.beginPath(); ctx.arc(o.x,o.y,o.r,0,Math.PI*2); ctx.fill();
+}
+function drawNeon(t){
+  neonFood.forEach(f=>{
+    ctx.globalAlpha=0.7;
+    ctx.shadowBlur=12; ctx.shadowColor=f.col;
+    ctx.fillStyle=f.col;
+    ctx.beginPath(); ctx.arc(f.x,f.y,f.size,0,Math.PI*2); ctx.fill();
+    ctx.shadowBlur=0; ctx.globalAlpha=1;
+  });
+}
+function drawYellow(){
+  yellowFood.forEach(f=>{
+    ctx.globalAlpha=0.8;
+    ctx.shadowBlur=8; ctx.shadowColor="#ffea00";
+    ctx.fillStyle="#ffea00";
+    ctx.beginPath(); ctx.arc(f.x,f.y,f.size,0,Math.PI*2); ctx.fill();
+    ctx.shadowBlur=0; ctx.globalAlpha=1;
+  });
+}
+
+/* --- Tesseract grid: perspective cubes fading out --- */
+function drawTesseract(){
+  ctx.strokeStyle="#111"; ctx.lineWidth=1.2;
+  const step=120, depth=6;
+  for(let z=0;z<depth;z++){
+    const s=(1+z*0.15);
+    const col=`rgba(34,34,34,${0.8-0.12*z})`;
+    ctx.strokeStyle=col;
+    for(let i=-4;i<=4;i++){
+      for(let j=-4;j<=4;j++){
+        const x=i*step*s, y=j*step*s;
+        cube(x,y,step*s);
+      }
+    }
+  }
+  function cube(x,y,s){
+    ctx.beginPath();
+    ctx.moveTo(x,y); ctx.lineTo(x+s,y);
+    ctx.lineTo(x+s,y+s); ctx.lineTo(x,y+s); ctx.closePath(); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x,y); ctx.lineTo(x-s*0.4,y-s*0.4);
+    ctx.lineTo(x-s*0.4+s,y-s*0.4); ctx.lineTo(x+s,y); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x+s,y); ctx.lineTo(x+s+s*0.4,y-s*0.4);
+    ctx.lineTo(x+s+s*0.4-s,y-s*0.4+s); ctx.lineTo(x+s,y+s); ctx.stroke();
   }
 }
 
-/* ------------------ Music Trigger ------------------ */
-function startMusic(){ const m=document.getElementById('backgroundMusic'); if(m&&m.paused)m.play().catch(()=>{}); }
-addEventListener('click',startMusic,{once:true}); addEventListener('touchend',startMusic,{once:true});
+/* ---------- Music trigger (unchanged) ---------- */
+function startMusic(){const a=document.getElementById('backgroundMusic');if(a&&a.paused)a.play().catch(()=>{});}
+addEventListener('click',startMusic,{once:true});addEventListener('touchend',startMusic,{once:true});
 </script>
 </body>
 </html>
