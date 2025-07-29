@@ -1,62 +1,57 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Genesis Evolution – Neon Frenzy</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-  <style>
-    html,body{margin:0;height:100%;background:#060616;overflow:hidden;font-family:"Inter",Arial,sans-serif;}
-    canvas{width:100%;height:100%;display:block;touch-action:none;
-           background:radial-gradient(circle at center,#32005a 0%,#000 85%);}
-    #hud{position:fixed;top:14px;left:18px;color:#fff;font-size:15px;text-shadow:0 0 4px rgba(255,255,255,.3);z-index:2;}
-    #compass{position:fixed;top:60px;left:18px;color:#aaa;font-size:12px;line-height:12px;letter-spacing:1px;text-shadow:0 0 2px #000;z-index:2;}
-    #effBar{position:fixed;bottom:14px;left:18px;width:220px;height:18px;border-radius:9px;background:rgba(255,255,255,.12);z-index:2;}
-    #effFill{width:100%;height:100%;border-radius:9px;background:#00e4b8;}
-    #pauseBtn{position:fixed;top:14px;right:18px;font-size:22px;color:#fff;cursor:pointer;user-select:none;z-index:2;}
-
-    #radarWrap{position:fixed;top:48px;right:18px;width:70px;height:70px;display:none;z-index:2;}
-    #radar{width:70px;height:70px;border:1px solid #555;border-radius:4px;background:rgba(0,0,0,.4);}
-
-    #zoomWrap{position:fixed;top:128px;right:18px;width:90px;display:flex;align-items:center;z-index:2;}
-    #zoomBar{width:90px;}
-  </style>
+<meta charset="UTF-8">
+<title>Genesis Evolution – Neon Frenzy</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<style>
+  html,body{margin:0;height:100%;background:#060616;overflow:hidden;font-family:"Inter",Arial,sans-serif;}
+  canvas{width:100%;height:100%;display:block;touch-action:none;
+         background:radial-gradient(circle at center,#32005a 0%,#000 85%);}
+  #hud{position:fixed;top:14px;left:18px;color:#fff;font-size:15px;text-shadow:0 0 4px rgba(255,255,255,.3);z-index:2;}
+  #compass{position:fixed;top:60px;left:18px;color:#aaa;font-size:12px;line-height:12px;letter-spacing:1px;text-shadow:0 0 2px #000;z-index:2;}
+  #effBar{position:fixed;bottom:14px;left:18px;width:220px;height:18px;border-radius:9px;background:rgba(255,255,255,.12);z-index:2;}
+  #effFill{width:100%;height:100%;border-radius:9px;background:#00e4b8;}
+  #pauseBtn{position:fixed;top:14px;right:18px;font-size:22px;color:#fff;cursor:pointer;user-select:none;z-index:2;}
+  #radarWrap{position:fixed;top:48px;right:18px;width:70px;height:70px;display:none;z-index:2;}
+  #radar{width:70px;height:70px;border:1px solid #555;border-radius:4px;background:rgba(0,0,0,.4);}
+  #zoomWrap{position:fixed;top:128px;right:18px;width:90px;display:flex;align-items:center;z-index:2;}
+  #zoomBar{width:90px;}
+</style>
 </head>
 <body>
 <canvas id="game"></canvas>
 
-<div id="hud">Mass: <span id="mass">10</span>&nbsp; Score: <span id="score">0</span>&nbsp; <span id="level">1</span></div>
-<div id="compass">N<br>E&nbsp;&nbsp;W<br>&nbsp;S</div>
+<div id="hud">Mass: <span id="mass">10</span>  Score: <span id="score">0</span>  <span id="level">1</span></div>
+<div id="compass">N<br>E  W<br> S</div>
 <div id="effBar"><div id="effFill"></div></div>
 <div id="pauseBtn">⏸︎</div>
-
 <div id="radarWrap"><canvas id="radar" width="70" height="70"></canvas></div>
 <div id="zoomWrap"><input id="zoomBar" type="range" min="50" max="150" value="100"></div>
 
 <audio id="backgroundMusic" src="background-music.mp3" loop preload="auto"></audio>
 
 <script>
-/* ==== CONSTANTS ================================================= */
+/* ===== CONSTANTS ===== */
 const MASS_THRESH=600,TITAN_LEVEL=10,TITAN_MAX=6,TITAN_RESPAWN_MS=20000,
       SPECTRE_MAX=3,REAPER_MAX=3,C_RING_DIST=1600;
-
 const PILL_COLORS=["#00aaff","#ff39ff"];
-const COLORS=["#00e4b8","#0ff","#00faff","#22e"];
-
+const COLORS=["#00e4b8","#0ff","#00faff","#22e"];  // single declaration
 const PERFECT_BONUS=lvl=>Math.min(400,Math.floor(40*Math.sqrt(lvl)));
 const FRENZY_BONUS_SCALE=0.4,SPECTRE_SPEED_MS=6000,SPECTRE_SPEED_MULT=1.25;
 const RADAR_PADDING=4;
 
-/* ==== CANVAS / SIZE ============================================ */
+/* ===== CANVAS ===== */
 const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
 let W,H;function resize(){W=canvas.width=innerWidth;H=canvas.height=innerHeight;}resize();addEventListener('resize',resize);
 
-/* ==== UI REFS =================================================== */
+/* ===== UI refs ===== */
 const massEl=document.getElementById('mass'),scoreEl=document.getElementById('score'),levelEl=document.getElementById('level');
 const pauseBtn=document.getElementById('pauseBtn'),zoomBar=document.getElementById('zoomBar');
 const radarWrap=document.getElementById('radarWrap'),radar=document.getElementById('radar'),rctx=radar.getContext('2d');
 
-/* ==== WORLD STATE ============================================== */
+/* ===== WORLD ===== */
 let player={x:0,y:0,r:15,mass:10,tail:[],baseSpeed:2.5,blink:0,speedBoost:0};
 let target={x:0,y:0,active:false};
 let offset={x:0,y:0},zoom=1;
@@ -68,14 +63,14 @@ let paused=false,radarActive=false;
 
 let titanTimer=0,titanKill=0,spectreKill=0,last=0,level=1,flash=0;
 
-/* ==== UTILS ===================================================== */
+/* ==== UTIL ==== */
 const rand=v=>Math.random()*v-v/2;
 const dist=(ax,ay,bx,by)=>Math.hypot(ax-bx,ay-by);
 const lerp=(a,b,t)=>a+(b-a)*t;
 const rgb=h=>({r:parseInt(h.slice(1,3),16),g:parseInt(h.slice(3,5),16),b:parseInt(h.slice(5,7),16)});
 const mixHex=(a,b,t)=>{const A=rgb(a),B=rgb(b);return`rgb(${Math.round(lerp(A.r,B.r,t))},${Math.round(lerp(A.g,B.g,t))},${Math.round(lerp(A.b,B.b,t))})`;};
 
-/* ==== SPAWNERS ================================================== */
+/* ==== SPAWNERS ==== */
 for(let i=0;i<60;i++)food.push({x:rand(1800),y:rand(1800),r:6});
 for(let i=0;i<12;i++)spawnFoe();
 ["N","S","E","W"].forEach(d=>{const p={N:[0,-C_RING_DIST],S:[0,C_RING_DIST],E:[C_RING_DIST,0],W:[-C_RING_DIST,0]}[d];beacons.push({x:p[0],y:p[1],r:18});});
@@ -85,7 +80,7 @@ function spawnSpectre(){const a=Math.random()*Math.PI*2,d=600+Math.random()*400;
 function spawnReaper(){const a=Math.random()*Math.PI*2,d=800+Math.random()*600;reapers.push({x:player.x+Math.cos(a)*d,y:player.y+Math.sin(a)*d,r:38+Math.random()*28,charge:0});}
 function spawnPill(){pill={x:rand(1800),y:rand(1800),r:10,active:true,cd:0};}
 
-/* ==== INPUT / UI =============================================== */
+/* ==== INPUT ==== */
 canvas.addEventListener("pointerdown",e=>{if(!paused){setTarget(e);target.active=true;}});
 canvas.addEventListener("pointermove",e=>{if(target.active&&!paused)setTarget(e);});
 canvas.addEventListener("pointerup",()=>target.active=false);
@@ -95,23 +90,25 @@ zoomBar.oninput=()=>{zoom=zoomBar.value/100;};
 pauseBtn.onclick=()=>{paused=!paused;pauseBtn.textContent=paused?"▶︎":"⏸︎";
   const m=document.getElementById('backgroundMusic');if(m)paused?m.pause():m.play().catch(()=>{});} ;
 
-/* ==== MAIN LOOP ================================================ */
+/* ==== MAIN LOOP ==== */
 function loop(ts){
   if(paused){last=ts;requestAnimationFrame(loop);return;}
   const dt=(ts-last)||16;last=ts;
 
-  /* --- movement --- */
-  const dx=(target.active?target.x:player.x)-player.x,dy=(target.active?target.y:player.y)-player.y,dlen=Math.hypot(dx,dy);
+  /* --- Move --- */
+  const dx=(target.active?target.x:player.x)-player.x,
+        dy=(target.active?target.y:player.y)-player.y,
+        dlen=Math.hypot(dx,dy);
   if(player.speedBoost>0)player.speedBoost=Math.max(0,player.speedBoost-dt);
-  const spMult=(player.speedBoost>0?SPECTRE_SPEED_MULT:1)*(frenzy?1.3:1);
-  if(dlen>1)player.x+=dx/dlen*player.baseSpeed*(1+0.1*(level-1))*spMult,
-             player.y+=dy/dlen*player.baseSpeed*(1+0.1*(level-1))*spMult;
+  const mult=(player.speedBoost?SPECTRE_SPEED_MULT:1)*(frenzy?1.3:1);
+  if(dlen>1)player.x+=dx/dlen*player.baseSpeed*(1+0.1*(level-1))*mult,
+             player.y+=dy/dlen*player.baseSpeed*(1+0.1*(level-1))*mult;
 
-  /* --- decay --- */
+  /* --- Decay --- */
   const decay=Math.min(0.000009*player.r*player.r+(player.mass<150?0.002:0.003),0.08);
   player.mass=Math.max(5,player.mass-decay*dt);
 
-  /* --- food --- */
+  /* --- Food --- */
   for(let i=food.length-1;i>=0;i--){const f=food[i];
     if(dist(player.x,player.y,f.x,f.y)<player.r+f.r){
       player.mass+=f.r*(f.frenzy?0.6:1.2);
@@ -119,7 +116,7 @@ function loop(ts){
       food.splice(i,1);} }
   while(food.length<60)food.push({x:rand(1800),y:rand(1800),r:6});
 
-  /* --- red foes --- */
+  /* --- Red foes --- */
   while(foes.length<(player.mass>=MASS_THRESH?18:12))spawnFoe();
   foes.forEach((o,i)=>{const d=dist(player.x,player.y,o.x,o.y);
     if(player.r>o.r&&d<player.r){player.mass+=o.r*2.5;foes.splice(i,1);return;}
@@ -127,7 +124,7 @@ function loop(ts){
     const c=1;if(o.r<player.r&&d<250){o.x-=(player.x-o.x)/d*c;o.y-=(player.y-o.y)/d*c;}
     else if(o.r>player.r&&d<250){o.x+=(player.x-o.x)/d*c;o.y+=(player.y-o.y)/d*c);} });
 
-  /* --- titans --- */
+  /* --- Titans --- */
   if(level>=TITAN_LEVEL){while(titans.length<TITAN_MAX)spawnTitan();
     titanTimer+=dt;if(titanTimer>TITAN_RESPAWN_MS){titanTimer=0;titans.length=0;}}
   titans.forEach((o,i)=>{o.hop-=dt;const d=dist(player.x,player.y,o.x,o.y);
@@ -136,26 +133,26 @@ function loop(ts){
     if(o.r>player.r&&d<o.r){player.mass=Math.max(5,player.mass-0.1*dt);player.blink=500;}
     if(o.hop<=0){o.hop=700;const hop=o.r>player.r?120:-80;o.x+=(player.x-o.x)/d*hop;o.y+=(player.y-o.y)/d*hop);} });
 
-  /* --- spectres --- */
+  /* --- Spectres --- */
   if(titanKill>=10)while(spectres.length<SPECTRE_MAX)spawnSpectre();
   spectres.forEach((s,i)=>{s.dash-=dt;const d=dist(player.x,player.y,s.x,s.y);
     if(d>2200){spectres.splice(i,1);spawnSpectre();return;}
     if(player.r>s.r&&d<player.r){player.mass+=s.r*7;player.speedBoost=SPECTRE_SPEED_MS;spectres.splice(i,1);spectreKill++;
       if(spectreKill%6===0&&reapers.length<REAPER_MAX)spawnReaper();return;}
     if(s.r>player.r&&d<s.r){player.mass=Math.max(5,player.mass-0.2*dt);player.blink=600;}
-    if(s.dash<=0){s.dash=400;const jump=s.r>player.r?160:-100;s.x+=(player.x-s.x)/d*jump;s.y+=(player.y-s.y)/d*jump;} });
+    if(s.dash<=0){s.dash=400;const j=s.r>player.r?160:-100;s.x+=(player.x-s.x)/d*j;s.y+=(player.y-s.y)/d*j;} });
 
-  /* --- reapers --- */
+  /* --- Reapers --- */
   reapers.forEach((r,i)=>{r.charge-=dt;const d=dist(player.x,player.y,r.x,r.y);
     if(d>2400){reapers.splice(i,1);return;}
     if(player.r>r.r&&d<player.r){player.mass+=r.r*10;reapers.splice(i,1);return;}
     if(r.r>player.r&&d<r.r){player.mass=Math.max(5,player.mass-0.25*dt);player.blink=700;}
     if(r.charge<=0){r.charge=300;const step=r.r>player.r?130:-100;r.x+=(player.x-r.x)/d*step;r.y+=(player.y-r.y)/d*step;} });
 
-  /* --- beacons / radar --- */
-  beacons.forEach((b,i)=>{if(dist(player.x,player.y,b.x,b.y)<player.r+b.r){beacons.length=0;radarActive=true;radarWrap.style.display="block";}});
+  /* --- Beacons -> radar --- */
+  beacons.forEach(b=>{if(dist(player.x,player.y,b.x,b.y)<player.r+b.r){beacons.length=0;radarActive=true;radarWrap.style.display="block";}});
 
-  /* --- pill / frenzy --- */
+  /* --- Pill / Frenzy --- */
   if(pill.active&&dist(player.x,player.y,pill.x,pill.y)<player.r+pill.r){
     frenzy=true;F_TIME=10000;pill.active=false;frenzyOrbsLeft=40;
     for(let i=0;i<40;i++){const a=Math.random()*Math.PI*2,r=120+Math.random()*120;
@@ -165,18 +162,18 @@ function loop(ts){
 
   if(!pill.active&&!frenzy){pill.cd+=dt;if(pill.cd>25000+Math.random()*10000)spawnPill();}
 
-  /* --- size / level --- */
+  /* --- Size / Level / Tail --- */
   player.r=10+player.mass/15;
   player.tail.unshift({x:player.x,y:player.y});if(player.tail.length>player.mass/3)player.tail.pop();
   const newLv=Math.floor(player.mass/100)+1;if(newLv>level){level=newLv;flash=30;}
   if(player.blink>0)player.blink-=dt;
 
-  /* --- camera --- */
+  /* --- Camera & Clear --- */
   offset.x=W/(2*zoom)-player.x;offset.y=H/(2*zoom)-player.y;
   ctx.setTransform(zoom,0,0,zoom,offset.x*zoom,offset.y*zoom);
   ctx.clearRect(-offset.x,-offset.y,W/zoom,H/zoom);
 
-  /* --- draw --- */
+  /* --- Draw --- */
   drawTesseract();
   food.forEach(f=>drawGlow(f.x,f.y,f.r,f.frenzy?f.col:"#ff0",f.frenzy?0.8:0.65));
   if(pill.active){const ph=(Math.sin(ts*0.005)+1)/2;drawGlow(pill.x,pill.y,pill.r,mixHex(PILL_COLORS[0],PILL_COLORS[1],ph),0.95);}
@@ -196,7 +193,7 @@ function loop(ts){
     const rx=35+player.x*scale,ry=35+player.y*scale;
     rctx.fillStyle="#00e4b8";rctx.beginPath();rctx.arc(rx,ry,3,0,Math.PI*2);rctx.fill();}
 
-  /* --- HUD --- */
+  /* --- HUD text --- */
   massEl.textContent=player.mass.toFixed(0);
   scoreEl.textContent=Math.floor(player.mass*10);
   levelEl.textContent=frenzy?`FRENZY ${Math.ceil(F_TIME/1000)}`:level;
@@ -206,7 +203,7 @@ function loop(ts){
 }
 requestAnimationFrame(loop);
 
-/* ==== DRAW HELPERS ============================================= */
+/* ==== DRAW HELPERS ==== */
 function drawGlow(x,y,r,c,a){ctx.globalAlpha=a;ctx.shadowBlur=12;ctx.shadowColor=c;ctx.fillStyle=c;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;ctx.globalAlpha=1;}
 function drawGlyphR(x,y,r,c){ctx.save();ctx.shadowBlur=12;ctx.shadowColor=c;ctx.fillStyle=c;ctx.font=`${r*2}px Inter`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("R",x,y);ctx.shadowBlur=0;ctx.restore();}
 function drawTesseract(){ctx.lineWidth=1.2;const step=120,d=6;
@@ -217,7 +214,7 @@ function drawTesseract(){ctx.lineWidth=1.2;const step=120,d=6;
     ctx.beginPath();ctx.moveTo(x+s,y);ctx.lineTo(x+s+s*0.4,y-s*0.4);ctx.lineTo(x+s+s*0.4-s,y-s*0.4+s);ctx.lineTo(x+s,y+s);ctx.stroke();}
 }
 
-/* ==== MUSIC ===================================================== */
+/* ==== MUSIC ==== */
 function startMusic(){const a=document.getElementById('backgroundMusic');if(a&&a.paused)a.play().catch(()=>{});}
 addEventListener('pointerdown',()=>{if(!paused)startMusic();},{once:true});
 </script>
