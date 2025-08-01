@@ -1,185 +1,252 @@
-<!DOCTYPE html>
+html_code = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Genesis Evolution — radar + safe-mass fix</title>
+<title>Genesis Evolution — Hyper-Wave Edition</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <style>
- html,body{margin:0;height:100%;background:#060616;overflow:hidden;font-family:"Inter",Arial,sans-serif;}
- canvas{width:100%;height:100%;display:block;touch-action:none;background:radial-gradient(circle at center,#32005a 0%,#000 85%);}
- #hud{position:fixed;top:14px;left:18px;color:#fff;font-size:15px;text-shadow:0 0 4px rgba(255,255,255,.3);z-index:2;}
- #compass{position:fixed;top:60px;left:18px;color:#aaa;font-size:12px;line-height:12px;letter-spacing:1px;text-shadow:0 0 2px #000;z-index:2;}
- #effBar{position:fixed;bottom:14px;left:18px;width:220px;height:18px;border-radius:9px;background:rgba(255,255,255,.12);z-index:2;}
- #effFill{width:100%;height:100%;border-radius:9px;background:#00e4b8;}
- #pauseBtn{position:fixed;top:14px;right:18px;font-size:22px;color:#fff;cursor:pointer;user-select:none;z-index:2;}
- #radarWrap{position:fixed;top:48px;right:18px;width:70px;height:70px;display:none;z-index:2;}
- #radar{width:70px;height:70px;border:1px solid #555;border-radius:4px;background:rgba(0,0,0,.4);}
- #zoomSlider{position:fixed;top:130px;right:18px;width:70px;transform:rotate(-90deg);z-index:2;}
+ :root{
+   --bg0:#060616;
+   --grid:#32005a;
+   --cyan:#00e4b8;
+   --mag:#ff39ff;
+   --hot:#ff8800;
+ }
+ html,body{margin:0;height:100%;background:var(--bg0);overflow:hidden;font-family:"Inter",Arial,sans-serif;-webkit-user-select:none;user-select:none;}
+ canvas{position:absolute;inset:0;touch-action:none;}
+ #hud{position:fixed;top:14px;left:18px;z-index:5;color:#fff;font-size:15px;text-shadow:0 0 4px rgba(255,255,255,.3)}
+ #hud b{font-weight:600}
+ #eff{position:fixed;bottom:14px;left:18px;width:220px;height:18px;border-radius:9px;background:rgba(255,255,255,.12);overflow:hidden;z-index:5}
+ #eff>i{display:block;width:100%;height:100%;background:var(--cyan)}
+ #btnP{position:fixed;top:14px;right:18px;font-size:22px;color:#fff;cursor:pointer;z-index:5}
+ #radarBox{position:fixed;top:48px;right:18px;width:70px;height:70px;border:1px solid #555;border-radius:5px;display:none;z-index:5;background:rgba(0,0,0,.35)}
+ #zoom{position:fixed;top:130px;right:18px;width:70px;transform:rotate(-90deg);z-index:5}
 </style>
 </head>
 <body>
+<canvas id="back"></canvas>
 <canvas id="game"></canvas>
 
-<div id="hud">Mass: <span id="mass">10</span>&nbsp; Score: <span id="score">0</span>&nbsp; <span id="level">1</span></div>
-<div id="compass">N<br>E&nbsp;&nbsp;W<br>&nbsp;S</div>
-<div id="effBar"><div id="effFill"></div></div>
-<div id="pauseBtn">⏸︎</div>
-<div id="radarWrap"><canvas id="radar" width="70" height="70"></canvas></div>
-<input id="zoomSlider" type="range" min="0.5" max="2" step="0.01" value="1">
+<div id="hud">
+  Mass <b id="mVal">10</b>  Score <b id="sVal">0</b>  Lvl <b id="lVal">1</b>
+</div>
+<div id="eff"><i id="effFill"></i></div>
+<div id="btnP">⏸︎</div>
+<div id="radarBox"><canvas id="radar" width="70" height="70"></canvas></div>
+<input id="zoom" type="range" min="0.6" max="2" step="0.02" value="1">
+
+<audio id="track1" src="https://cdn.pixabay.com/audio/2022/10/18/audio_7ae4c2b5ec.mp3" loop preload="auto"></audio>
+<audio id="track2" src="https://cdn.pixabay.com/audio/2022/10/20/audio_e99f0e0949.mp3" loop preload="auto"></audio>
 
 <script>
-/* === CONSTANTS & BALANCE === */
-const MASS_THRESH=600,TITAN_LEVEL=10,TITAN_MAX=6,TITAN_RESPAWN_MS=20000,
-      SPECTRE_MAX=3,REAPER_MAX=3,C_RING_DIST=1600;
-const SPECTRE_SPEED_MS=6000,SPECTRE_SPEED_MULT=1.25,RADAR_PADDING=4;
-const MASS_SPEED_FACTOR=0.0012,EXTRA_TAIL_PCT=0.10,MAX_TAIL_DRAW=60;
-const SAFE_MASS=70,SAFE_DIST=350,BLINK_MS=300;
+const DPR = Math.min(2, window.devicePixelRatio || 1);
 
-/* === CANVAS & ZOOM === */
-const canvas=document.getElementById("game"),ctx=canvas.getContext("2d",{alpha:false});
-let W,H;function resize(){W=canvas.width=innerWidth;H=canvas.height=innerHeight;}resize();addEventListener("resize",resize);
-let sliderZoom=1;document.getElementById("zoomSlider").addEventListener("input",e=>sliderZoom=parseFloat(e.target.value));
-let zoom=sliderZoom;
+const cBack = document.getElementById('back'),
+      ctxB  = cBack.getContext('2d'),
+      cMain = document.getElementById('game'),
+      ctx   = cMain.getContext('2d', { alpha:false });
+let W,H; function fit(){W=innerWidth;H=innerHeight;
+  [cBack,cMain].forEach(cv=>{cv.width = W*DPR; cv.height=H*DPR; cv.style.width=W+'px'; cv.style.height=H+'px';});
+  ctx.scale(DPR,DPR);
+  initStarfield();
+} fit(); addEventListener('resize',fit);
 
-/* === HUD / RADAR refs === */
-const massEl=document.getElementById("mass"),scoreEl=document.getElementById("score"),levelEl=document.getElementById("level");
-const rWrap=document.getElementById("radarWrap"),rctx=document.getElementById("radar").getContext("2d");
+const mVal=document.getElementById('mVal'),
+      sVal=document.getElementById('sVal'),
+      lVal=document.getElementById('lVal'),
+      effFill=document.getElementById('effFill');
 
-/* === WORLD DATA === */
-let player={x:0,y:0,r:15,mass:10,tail:[],baseSpeed:2.5,blink:0,speedBoost:0};
-let target={x:0,y:0,active:false},offset={x:0,y:0};
-const food=[],foes=[],titans=[],spectres=[],reapers=[],beacons=[];
-let pill={x:0,y:0,r:10,active:false,cd:0};
-let paused=false,radarActive=false;
-let titanKill=0,spectreKill=0,level=1;
+const MASS_TITAN = 650,
+      MASS_SPEED_F = 0.00125,
+      MASS_DECAY_BASE = 0.00001,
+      MASS_DECAY_EXTRA = 0.0025,
+      MAX_FOES = 14,
+      MAX_TITANS = 6,
+      STAR_LAYERS = 3,
+      STAR_COUNT = 120,
+      GRID_SIZE = 60;
 
-/* === UTILITIES === */
-const rand=v=>Math.random()*v-v/2;
-const dist=(a,b,c,d)=>Math.hypot(a-c,b-d);
-const onScr=(x,y,r)=>!(x+r<player.x-W/(2*zoom)||x-r>player.x+W/(2*zoom)||y+r<player.y-H/(2*zoom)||y-r>player.y+H/(2*zoom));
+let player = {x:0,y:0,r:15,m:10,tail:[],boost:0,blink:0},
+    food = [], foes=[], titans=[];
+let target = {x:0,y:0,down:false},
+    zoom = 1, cam={x:0,y:0}, paused=false;
 
-/* === SPAWNERS === */
-function spawnFood(){while(food.length<60)food.push({x:rand(1800),y:rand(1800),r:6});}
-function spawnFoe(){foes.push({x:rand(2000),y:rand(2000),r:(player.mass>=MASS_THRESH?14:10)+Math.random()*20});}
-function spawnTitan(){const a=Math.random()*6.283,d=700+Math.random()*500;titans.push({x:player.x+Math.cos(a)*d,y:player.y+Math.sin(a)*d,r:25+Math.random()*35,hop:0});}
-function spawnSpectre(){const a=Math.random()*6.283,d=600+Math.random()*400;spectres.push({x:player.x+Math.cos(a)*d,y:player.y+Math.sin(a)*d,r:22+Math.random()*25,dash:0});}
-function spawnReaper(){const a=Math.random()*6.283,d=800+Math.random()*600;reapers.push({x:player.x+Math.cos(a)*d,y:player.y+Math.sin(a)*d,r:38+Math.random()*28,charge:0});}
+const toWorld = e=>({x:(e.clientX-cam.x)/zoom, y:(e.clientY-cam.y)/zoom});
+cMain.addEventListener('pointerdown',e=>{target=toWorld(e); target.down=true});
+cMain.addEventListener('pointermove',e=>{if(target.down){const p=toWorld(e);target.x=p.x;target.y=p.y}});
+addEventListener('pointerup',()=>target.down=false);
 
-/* === INITIAL POPULATION === */
-spawnFood();for(let i=0;i<12;i++)spawnFoe();
-["N","S","E","W"].forEach(d=>{const p={N:[0,-C_RING_DIST],S:[0,C_RING_DIST],E:[C_RING_DIST,0],W:[-C_RING_DIST,0]}[d];beacons.push({x:p[0],y:p[1],r:18});});
+let pinchDist=0;
+addEventListener('touchstart',e=>{
+  if(e.touches.length===2){pinchDist = distT(e.touches[0],e.touches[1]);}
+});
+addEventListener('touchmove',e=>{
+  if(e.touches.length===2){
+    const d = distT(e.touches[0],e.touches[1]);
+    zoom = Math.max(.6, Math.min(2, zoom * (d/pinchDist)));
+    document.getElementById('zoom').value=zoom.toFixed(2);
+    pinchDist=d; e.preventDefault();
+  }
+},{passive:false});
+document.getElementById('zoom').oninput=e=>zoom=parseFloat(e.target.value);
 
-/* === INPUT === */
-const toWorld=e=>({x:(e.clientX-offset.x)/zoom,y:(e.clientY-offset.y)/zoom});
-canvas.addEventListener("pointerdown",e=>{if(!paused){target=toWorld(e);target.active=true;}});
-canvas.addEventListener("pointermove",e=>{if(target.active&&!paused)target=toWorld(e);} );
-canvas.addEventListener("pointerup",()=>target.active=false);
+document.getElementById('btnP').onclick=()=>{
+  paused=!paused;
+  document.getElementById('btnP').textContent=paused?'▶︎':'⏸︎';
+  crossFadeTracks(paused?0:1);
+};
 
-/* === PAUSE BTN === */
-document.getElementById("pauseBtn").onclick=()=>{paused=!paused;};
+let stars=[];
+function initStarfield(){
+  stars=[];
+  for(let l=0;l<STAR_LAYERS;l++){
+    for(let i=0;i<STAR_COUNT/(l+1);i++){
+      stars.push({x:Math.random()*W*2-W, y:Math.random()*H*2-H, z:l});
+    }
+  }
+}
+function drawBack(ax=0,ay=0){
+  ctxB.save();
+  ctxB.setTransform(1,0,0,1,0,0);
+  ctxB.clearRect(0,0,W,H);
+  stars.forEach(s=>{
+    const depth = (s.z+1)/STAR_LAYERS;
+    let sx = ((s.x+player.x*0.3)+ax*10*depth)% (W*2) - W,
+        sy = ((s.y+player.y*0.3)+ay*10*depth)% (H*2) - H;
+    ctxB.fillStyle=`rgba(255,255,255,${0.15/depth})`;
+    ctxB.fillRect(sx,sy,2,2);
+  });
+  ctxB.strokeStyle='rgba(50,0,90,0.35)';
+  ctxB.lineWidth=1;
+  const gridOffX=((player.x*0.2)+ax*20)%GRID_SIZE,
+        gridOffY=((player.y*0.2)+ay*20)%GRID_SIZE;
+  for(let x=-GRID_SIZE;x<W+GRID_SIZE;x+=GRID_SIZE){
+    ctxB.beginPath();ctxB.moveTo(x-gridOffX,0);ctxB.lineTo(x-gridOffX,H);ctxB.stroke();
+  }
+  for(let y=-GRID_SIZE;y<H+GRID_SIZE;y+=GRID_SIZE){
+    ctxB.beginPath();ctxB.moveTo(0,y-gridOffY);ctxB.lineTo(W,y-gridOffY);ctxB.stroke();
+  }
+  ctxB.restore();
+}
 
-/* === DRAW HELPERS === */
-function glow(x,y,r,c,a){if(r*zoom<0.8||!onScr(x,y,r))return;ctx.globalAlpha=a;ctx.shadowBlur=12*zoom;ctx.shadowColor=c;ctx.fillStyle=c;ctx.beginPath();ctx.arc(x,y,r,0,6.283);ctx.fill();ctx.shadowBlur=0;ctx.globalAlpha=1;}
-function glyphR(x,y,r,c){if(r*zoom<0.8||!onScr(x,y,r))return;ctx.save();ctx.fillStyle=c;ctx.font=`${r*2}px Inter`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("R",x,y);ctx.restore();}
+const t1=document.getElementById('track1'),
+      t2=document.getElementById('track2');
+[t1,t2].forEach(t=> t.volume=0);
+function crossFadeTracks(play){
+  [t1,t2].forEach(t=>{if(t.paused)t.play().catch(()=>{});});
+  let start=performance.now();
+  (function fade(now){
+    const k=Math.min(1,(now-start)/1200);
+    t1.volume = play?1-k:k;
+    t2.volume = play?k:1-k;
+    if(k<1) requestAnimationFrame(fade);
+  })(start);
+}
+addEventListener('pointerdown',()=>crossFadeTracks(1),{once:true});
 
-/* === MAIN LOOP === */
-let last=0;requestAnimationFrame(function loop(ts){
-  if(paused){last=ts;return requestAnimationFrame(loop);}const dt=(ts-last)||16;last=ts;
+const rand=v=>Math.random()*v-v/2,
+      dist=(ax,ay,bx,by)=>Math.hypot(ax-bx,ay-by),
+      distT=(a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
 
-/* auto-zoom so blob ≤½ screen */
-  zoom=Math.min(sliderZoom,Math.max(0.5,H/(player.r*4)));
+function spawnFood(){while(food.length<60) food.push({x:rand(1800),y:rand(1800),r:5+Math.random()*3});}
+function spawnFoe(){foes.push({x:rand(2200),y:rand(2200),r:12+Math.random()*18});}
+function spawnTitan(){const a=Math.random()*Math.PI*2,d=800+Math.random()*600;titans.push({x:player.x+Math.cos(a)*d,y:player.y+Math.sin(a)*d,r:28+Math.random()*30});}
 
-/* clear screen */
-  ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,W,H);
+spawnFood(); for(let i=0;i<10;i++)spawnFoe();
 
-/* ── MOVEMENT & DECAY ── */
-  const dx=(target.active?target.x:player.x)-player.x,
-        dy=(target.active?target.y:player.y)-player.y,
-        len=Math.hypot(dx,dy),
-        vel=player.baseSpeed*(player.speedBoost>0?SPECTRE_SPEED_MULT:1)*(1+player.mass*MASS_SPEED_FACTOR);
-  if(len>1)player.x+=dx/len*vel,player.y+=dy/len*vel;
-  player.mass=Math.max(5,player.mass-(0.000009*player.r*player.r+(player.mass<150?0.002:0.003))*dt);
+let last=0, accX=0,accY=0;
+function loop(ts){
+  if(paused){last=ts; return requestAnimationFrame(loop);}
+  const dt = (ts-last||16)/16.6; last=ts;
 
-/* ── FOOD ── */
-  for(let i=food.length-1;i>=0;i--)if(dist(player.x,player.y,food[i].x,food[i].y)<player.r+food[i].r){player.mass+=food[i].r;food.splice(i,1);}
+  const dx=(target.down?target.x:player.x)-player.x,
+        dy=(target.down?target.y:player.y)-player.y,
+        len=Math.hypot(dx,dy);
+  const spBase = 2.7*(1+player.m*MASS_SPEED_F)*(player.boost>0?1.3:1);
+  if(len>1){player.x+=dx/len*spBase; player.y+=dy/len*spBase;}
+  if(player.boost>0)player.boost-=dt*16;
+  player.m -= (MASS_DECAY_BASE*player.r*player.r + MASS_DECAY_EXTRA)*dt;
+  player.m = Math.max(5,player.m);
+  player.r = 10 + player.m/15;
+
+  for(let i=food.length-1;i>=0;i--){
+    if(dist(player.x,player.y,food[i].x,food[i].y)<player.r+food[i].r){
+      player.m += food[i].r*0.8;
+      food.splice(i,1);
+      if(navigator.vibrate) navigator.vibrate(10);
+    }
+  }
   spawnFood();
 
-/* ── BASIC FOES ── */
-  while(foes.length<(player.mass>=MASS_THRESH?18:12))spawnFoe();
-  foes.forEach((o,i)=>{const d=dist(player.x,player.y,o.x,o.y);
-    if(player.r>o.r&&d<player.r){player.mass+=o.r*2.5;foes.splice(i,1);}
-    else if(o.r>player.r&&d<o.r&&player.blink<50)player.blink=BLINK_MS;});
+  while(foes.length<MAX_FOES)spawnFoe();
+  foes.forEach((f,i)=>{
+    const d=dist(player.x,player.y,f.x,f.y);
+    const v = f.r>player.r?1.8:1;
+    if(d<player.r && player.r>f.r){player.m+=f.r*2; foes.splice(i,1); return;}
+    if(d<player.r && player.r<f.r){player.m-=f.r*0.3; player.blink=10;}
+    if(d<300){f.x += (f.r>player.r?1:-1)*(player.x-f.x)/d*v;f.y += (f.r>player.r?1:-1)*(player.y-f.y)/d*v;}
+  });
 
-/* ── TITANS ── */
-  if(level>=TITAN_LEVEL)while(titans.length<TITAN_MAX)spawnTitan();
-  titans.forEach((t,i)=>{t.hop-=dt;const d=dist(player.x,player.y,t.x,t.y);
-    if(d>2400){titans.splice(i,1);return;}
-    if(player.r>t.r&&d<player.r){player.mass+=t.r*5;titans.splice(i,1);titanKill++;return;}
-    if(t.r>player.r&&d<t.r&&player.blink<50)player.blink=BLINK_MS;
-    if(t.hop<=0){t.hop=700;const hop=t.r>player.r?120:-80;t.x+=(player.x-t.x)/d*hop;t.y+=(player.y-t.y)/d*hop;}});
+  if(player.m>MASS_TITAN && titans.length<MAX_TITANS) spawnTitan();
+  titans.forEach((t,j)=>{
+    const d=dist(player.x,player.y,t.x,t.y);
+    if(d>2500){ titans.splice(j,1); spawnTitan(); }
+    if(d<player.r && player.r>t.r){player.m+=t.r*4; titans.splice(j,1); player.boost=240; navigator.vibrate?.(30);}
+    if(d<player.r && player.r<t.r){player.m-=t.r*0.4; player.blink=14;}
+  });
 
-/* ── SPECTRES (safe-mass retreat) ── */
-  if(titanKill>=10)while(spectres.length<SPECTRE_MAX)spawnSpectre();
-  const small=player.mass<SAFE_MASS;
-  spectres.forEach((s,i)=>{s.dash-=dt;const d=dist(player.x,player.y,s.x,s.y);
-    if(d>2600){spectres.splice(i,1);return;}
-    if(!small&&d<player.r){player.mass+=s.r*7;player.speedBoost=SPECTRE_SPEED_MS;spectres.splice(i,1);spectreKill++;if(spectreKill%6===0&&reapers.length<REAPER_MAX)spawnReaper();return;}
-    if(!small&&s.r>player.r&&d<s.r&&player.blink<50)player.blink=BLINK_MS;
-    const vx=player.x-s.x,vy=player.y-s.y;
-    if(small&&d<SAFE_DIST){s.x-=vx/d*3;s.y-=vy/d*3;}               /* retreat */
-    else if(s.dash<=0){s.dash=400;const jump=s.r>player.r?160:-100;s.x+=vx/d*jump*-1;s.y+=vy/d*jump*-1;}});
-
-/* ── REAPERS (safe-mass retreat) ── */
-  reapers.forEach((r,i)=>{r.charge-=dt;const d=dist(player.x,player.y,r.x,r.y);
-    if(d>2800){reapers.splice(i,1);return;}
-    if(!small&&d<player.r){player.mass+=r.r*10;reapers.splice(i,1);return;}
-    if(!small&&r.r>player.r&&d<r.r&&player.blink<50)player.blink=BLINK_MS;
-    const vx=player.x-r.x,vy=player.y-r.y;
-    if(small&&d<SAFE_DIST){r.x-=vx/d*4;r.y-=vy/d*4;}
-    else if(r.charge<=0){r.charge=300;const step=r.r>player.r?130:-100;r.x+=vx/d*step*-1;r.y+=vy/d*step*-1;}});
-
-/* ── BEACON unlocks radar ── */
-  beacons.forEach(b=>{if(dist(player.x,player.y,b.x,b.y)<player.r+b.r){beacons.length=0;radarActive=true;rWrap.style.display="block";}});
-
-/* ── SIZE / TAIL / LEVEL ── */
-  player.r=10+player.mass/15;level=Math.floor(player.mass/100)+1;
   player.tail.unshift({x:player.x,y:player.y});
-  while(player.tail.length>Math.ceil(player.mass/3*(1+EXTRA_TAIL_PCT)))player.tail.pop();
-  if(player.blink>0)player.blink-=dt;
+  while(player.tail.length>Math.min(80,Math.ceil(player.m/2))) player.tail.pop();
 
-/* ── CAMERA ── */
-  offset.x=W/2-player.x*zoom;offset.y=H/2-player.y*zoom;
-  ctx.setTransform(zoom,0,0,zoom,offset.x,offset.y);
+  cam.x += ((W/2 - player.x*zoom) - cam.x)*0.12;
+  cam.y += ((H/2 - player.y*zoom) - cam.y)*0.12;
+  ctx.setTransform(zoom,0,0,zoom,cam.x,cam.y);
 
-/* ── DRAW WORLD ── */
-  ctx.fillStyle="#161616";ctx.fillRect(player.x-3000,player.y-3000,6000,6000);
-  food.forEach(f=>glow(f.x,f.y,f.r,"#ff0",0.6));
-  foes.forEach(o=>glow(o.x,o.y,o.r,"#f00",0.85));
-  titans.forEach(t=>glow(t.x,t.y,t.r,"#cc00ff",0.9));
-  spectres.forEach(s=>glow(s.x,s.y,s.r,"#ffde59",0.9));
-  reapers.forEach(r=>glow(r.x,r.y,r.r,"#ff8800",0.9));
-  beacons.forEach(b=>glyphR(b.x,b.y,b.r,"#00e4ff"));
-  const skip=Math.max(1,Math.ceil(player.tail.length/MAX_TAIL_DRAW));
-  for(let i=0;i<player.tail.length;i+=skip)glow(player.tail[i].x,player.tail[i].y,player.r*(1-i/player.tail.length),"#00e4b8",0.3);
-  glow(player.x,player.y,player.r,player.blink>0?(player.blink%200<100?"#fff":"#ff44ff"):"#00e4b8",1);
+  drawBack(accX,accY);
 
-/* ── RADAR (redraws every frame) ── */
-  if(radarActive){
-    rctx.clearRect(0,0,70,70);
-    rctx.fillStyle="rgba(0,0,0,.55)";rctx.fillRect(0,0,70,70);
-    rctx.strokeStyle="#666";rctx.strokeRect(0,0,70,70);
-    const scale=(30-RADAR_PADDING)/Math.max(C_RING_DIST,Math.abs(player.x),Math.abs(player.y));
-    rctx.fillStyle="#0ef";rctx.beginPath();rctx.arc(35+player.x*scale,35+player.y*scale,3,0,6.283);rctx.fill();
+  ctx.clearRect(-cam.x/zoom,-cam.y/zoom,W/zoom,H/zoom);
+
+  const glow = (x,y,r,c,a=1)=>{
+    if(!onScr(x,y,r))return; ctx.globalAlpha=a; ctx.shadowBlur=12; ctx.shadowColor=c;
+    ctx.fillStyle=c; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0; ctx.globalAlpha=1;
+  };
+  const onScr = (x,y,r)=>!(x+r<player.x-W/(2*zoom)|| x-r>player.x+W/(2*zoom)|| y+r<player.y-H/(2*zoom)|| y-r>player.y+H/(2*zoom));
+
+  food.forEach(f=>glow(f.x,f.y,f.r,'#ff0',0.6));
+  foes.forEach(f=>glow(f.x,f.y,f.r,'#f44',0.8));
+  titans.forEach(t=>glow(t.x,t.y,t.r,'#cc00ff',0.9));
+
+  const skip=Math.max(1,Math.ceil(player.tail.length/60));
+  for(let i=0;i<player.tail.length;i+=skip){
+    const p=player.tail[i], frac=i/player.tail.length;
+    glow(p.x,p.y,player.r*(1-frac),`hsla(${200+160*frac},100%,60%,.3)`,0.25);
   }
+  glow(player.x,player.y,player.r,player.blink>0? (player.blink%6<3? '#fff':'#ff55ff') :'var(--cyan)',1);
+  if(player.blink>0)player.blink-=dt*2;
 
-/* ── HUD ── */
-  massEl.textContent=player.mass.toFixed(0);
-  scoreEl.textContent=Math.floor(player.mass*10);
-  levelEl.textContent=level;
+  mVal.textContent = player.m.toFixed(0);
+  sVal.textContent = Math.floor(player.m*10);
+  lVal.textContent = Math.floor(player.m/100)+1;
+  effFill.style.transform = `scaleX(${Math.min(1,player.boost/240)})`;
 
   requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+if(DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission==='function'){
+  addEventListener('pointerdown',()=>DeviceMotionEvent.requestPermission().catch(()=>{}),{once:true});
+}
+addEventListener('deviceorientation',(e)=>{
+  if(e.beta!=null){
+    const k=0.03;
+    accX = e.gamma * k;
+    accY = e.beta  * k;
+  }
 });
 </script>
 </body>
 </html>
+"""
+
+Path('/mnt/data/genesis_hyperwave.html').write_text(html_code)
