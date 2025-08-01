@@ -2,16 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Genesis Evolution — Hyper-Wave Edition (v1.1)</title>
+<title>Genesis Evolution — Hyper-Wave Edition (v1.2)</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <style>
  :root{
-   --bg0:#060616;   /* cosmic void   */
-   --grid:#32005a;  /* neon grid     */
-   --cyan:#00e4b8;  /* player glow   */
-   --mag:#ff39ff;   /* pulse fx      */
-   --hot:#ff8800;   /* danger glow   */
+   --bg0:#060616;
+   --grid:#32005a;
+   --cyan:#00e4b8;   /* still used in CSS, just not inside canvas */
+   --mag:#ff39ff;
+   --hot:#ff8800;
  }
  html,body{margin:0;height:100%;background:var(--bg0);overflow:hidden;font-family:"Inter",Arial,sans-serif;-webkit-user-select:none;user-select:none;}
  canvas{position:absolute;inset:0;touch-action:none;}
@@ -25,8 +25,8 @@
 </style>
 </head>
 <body>
-<canvas id="back"></canvas>   <!-- parallax stars & grid -->
-<canvas id="game"></canvas>   <!-- main world            -->
+<canvas id="back"></canvas>
+<canvas id="game"></canvas>
 
 <div id="hud">
   Mass <b id="mVal">10</b>  Score <b id="sVal">0</b>  Lvl <b id="lVal">1</b>
@@ -40,65 +40,43 @@
 <audio id="track2" src="https://cdn.pixabay.com/audio/2022/10/20/audio_e99f0e0949.mp3" loop preload="auto"></audio>
 
 <script>
-/* =========================================================
-   High-DPI canvas & basic DOM refs
-========================================================= */
-const DPR = Math.min(2, window.devicePixelRatio || 1);
-
-const cBack = document.getElementById('back'),  ctxB = cBack.getContext('2d');
-const cMain = document.getElementById('game'),  ctx  = cMain.getContext('2d',{alpha:false});
+/* ===== High-DPI canvas setup ===== */
+const DPR=Math.min(2,window.devicePixelRatio||1);
+const cBack=document.getElementById('back'),ctxB=cBack.getContext('2d');
+const cMain=document.getElementById('game'),ctx=cMain.getContext('2d',{alpha:false});
 let W,H;
-function fit(){
-  W=innerWidth; H=innerHeight;
-  [cBack,cMain].forEach(cv=>{
-    cv.width  = W*DPR;
-    cv.height = H*DPR;
-    cv.style.width  = W+'px';
-    cv.style.height = H+'px';
-  });
-  ctxB.setTransform(DPR,0,0,DPR,0,0);          // background draws at DPR once
+function fit(){W=innerWidth;H=innerHeight;
+  [cBack,cMain].forEach(cv=>{cv.width=W*DPR;cv.height=H*DPR;cv.style.width=W+'px';cv.style.height=H+'px';});
+  ctxB.setTransform(DPR,0,0,DPR,0,0);  // one-time DPR for background
   initStarfield();
 }
 fit(); addEventListener('resize',fit);
 
-/* HUD refs */
+/* ===== HUD refs ===== */
 const mVal=document.getElementById('mVal'),
       sVal=document.getElementById('sVal'),
       lVal=document.getElementById('lVal'),
       effFill=document.getElementById('effFill');
 
-/* =========================================================
-   Gameplay constants
-========================================================= */
-const MASS_TITAN        = 650,
-      MASS_SPEED_F      = 0.00125,
-      MASS_DECAY_BASE   = 0.00001,
-      MASS_DECAY_EXTRA  = 0.0025,
-      MAX_FOES          = 14,
-      MAX_TITANS        = 6,
-      STAR_LAYERS       = 3,
-      STAR_COUNT        = 120,
-      GRID_SIZE         = 60;
+/* ===== Constants ===== */
+const MASS_TITAN=650, MASS_SPEED_F=0.00125, MASS_DECAY_BASE=0.00001, MASS_DECAY_EXTRA=0.0025,
+      MAX_FOES=14, MAX_TITANS=6, STAR_LAYERS=3, STAR_COUNT=120, GRID_SIZE=60,
+      CYAN='#00e4b8';          // <-- literal color for canvas
 
-/* =========================================================
-   World state
-========================================================= */
-let player = {x:0,y:0,r:15,m:10,tail:[],boost:0,blink:0},
-    food   = [], foes=[], titans=[];
-let target = {x:0,y:0,down:false},
-    zoom   = 1, cam={x:0,y:0}, paused=false;
+/* ===== World state ===== */
+let player={x:0,y:0,r:15,m:10,tail:[],boost:0,blink:0},
+    food=[],foes=[],titans=[];
+let target={x:0,y:0,down:false},zoom=1,cam={x:0,y:0},paused=false;
 
-/* =========================================================
-   Input
-========================================================= */
-const toWorld = e=>({x:(e.clientX-cam.x)/zoom, y:(e.clientY-cam.y)/zoom});
-cMain.addEventListener('pointerdown',e=>{target=toWorld(e); target.down=true});
-cMain.addEventListener('pointermove',e=>{if(target.down){const p=toWorld(e);target.x=p.x;target.y=p.y}});
+/* ===== Input ===== */
+const toWorld=e=>({x:(e.clientX-cam.x)/zoom,y:(e.clientY-cam.y)/zoom});
+cMain.addEventListener('pointerdown',e=>{target=toWorld(e);target.down=true});
+cMain.addEventListener('pointermove',e=>{if(target.down){const p=toWorld(e);target.x=p.x;target.y=p.y;}});
 addEventListener('pointerup',()=>target.down=false);
 
 /* pinch-zoom */
 let pinchDist=0;
-addEventListener('touchstart',e=>{ if(e.touches.length===2) pinchDist=distT(e.touches[0],e.touches[1]);});
+addEventListener('touchstart',e=>{if(e.touches.length===2)pinchDist=distT(e.touches[0],e.touches[1]);});
 addEventListener('touchmove',e=>{
   if(e.touches.length===2){
     const d=distT(e.touches[0],e.touches[1]);
@@ -109,126 +87,95 @@ addEventListener('touchmove',e=>{
 },{passive:false});
 document.getElementById('zoom').oninput=e=>zoom=parseFloat(e.target.value);
 
-/* pause / play */
+/* pause */
 document.getElementById('btnP').onclick=()=>{
   paused=!paused;
   document.getElementById('btnP').textContent=paused?'▶︎':'⏸︎';
   crossFadeTracks(paused?0:1);
 };
 
-/* =========================================================
-   Starfield & neon grid
-========================================================= */
+/* ===== Starfield & grid ===== */
 let stars=[];
 function initStarfield(){
   stars=[];
-  for(let l=0;l<STAR_LAYERS;l++){
-    for(let i=0;i<STAR_COUNT/(l+1);i++){
-      stars.push({x:Math.random()*W*2-W, y:Math.random()*H*2-H, z:l});
-    }
-  }
+  for(let l=0;l<STAR_LAYERS;l++)
+    for(let i=0;i<STAR_COUNT/(l+1);i++)
+      stars.push({x:Math.random()*W*2-W,y:Math.random()*H*2-H,z:l});
 }
 function drawBack(ax=0,ay=0){
-  ctxB.save();
-  ctxB.setTransform(1,0,0,1,0,0);
-  ctxB.clearRect(0,0,W,H);
-
-  /* stars */
+  ctxB.save(); ctxB.setTransform(1,0,0,1,0,0); ctxB.clearRect(0,0,W,H);
   stars.forEach(s=>{
     const depth=(s.z+1)/STAR_LAYERS;
-    let sx=((s.x+player.x*0.3)+ax*10*depth)%(W*2)-W,
-        sy=((s.y+player.y*0.3)+ay*10*depth)%(H*2)-H;
+    const sx=((s.x+player.x*0.3)+ax*10*depth)%(W*2)-W,
+          sy=((s.y+player.y*0.3)+ay*10*depth)%(H*2)-H;
     ctxB.fillStyle=`rgba(255,255,255,${0.15/depth})`;
     ctxB.fillRect(sx,sy,2,2);
   });
-
-  /* grid */
-  ctxB.strokeStyle='rgba(50,0,90,0.35)';
-  ctxB.lineWidth=1;
-  const gridOffX=((player.x*0.2)+ax*20)%GRID_SIZE,
-        gridOffY=((player.y*0.2)+ay*20)%GRID_SIZE;
-  for(let x=-GRID_SIZE;x<W+GRID_SIZE;x+=GRID_SIZE){
-    ctxB.beginPath();ctxB.moveTo(x-gridOffX,0);ctxB.lineTo(x-gridOffX,H);ctxB.stroke();
-  }
-  for(let y=-GRID_SIZE;y<H+GRID_SIZE;y+=GRID_SIZE){
-    ctxB.beginPath();ctxB.moveTo(0,y-gridOffY);ctxB.lineTo(W,y-gridOffY);ctxB.stroke();
-  }
+  ctxB.strokeStyle='rgba(50,0,90,0.35)'; ctxB.lineWidth=1;
+  const ox=((player.x*0.2)+ax*20)%GRID_SIZE, oy=((player.y*0.2)+ay*20)%GRID_SIZE;
+  for(let x=-GRID_SIZE;x<W+GRID_SIZE;x+=GRID_SIZE){ctxB.beginPath();ctxB.moveTo(x-ox,0);ctxB.lineTo(x-ox,H);ctxB.stroke();}
+  for(let y=-GRID_SIZE;y<H+GRID_SIZE;y+=GRID_SIZE){ctxB.beginPath();ctxB.moveTo(0,y-oy);ctxB.lineTo(W,y-oy);ctxB.stroke();}
   ctxB.restore();
 }
 
-/* =========================================================
-   Audio cross-fade helper
-========================================================= */
-const t1=document.getElementById('track1'),
-      t2=document.getElementById('track2');
+/* ===== Audio x-fade ===== */
+const t1=document.getElementById('track1'), t2=document.getElementById('track2');
 [t1,t2].forEach(t=>t.volume=0);
 function crossFadeTracks(play){
   [t1,t2].forEach(t=>{if(t.paused)t.play().catch(()=>{});});
   let start=performance.now();
   (function fade(now){
     const k=Math.min(1,(now-start)/1200);
-    t1.volume=play?1-k:k;
-    t2.volume=play?k:1-k;
+    t1.volume=play?1-k:k; t2.volume=play?k:1-k;
     if(k<1)requestAnimationFrame(fade);
   })(start);
 }
 addEventListener('pointerdown',()=>crossFadeTracks(1),{once:true});
 
-/* =========================================================
-   Utility
-========================================================= */
+/* ===== Utility ===== */
 const rand=v=>Math.random()*v-v/2,
       dist=(ax,ay,bx,by)=>Math.hypot(ax-bx,ay-by),
       distT=(a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
 
-/* =========================================================
-   Spawners
-========================================================= */
+/* ===== Spawners ===== */
 function spawnFood(){while(food.length<60)food.push({x:rand(1800),y:rand(1800),r:5+Math.random()*3});}
 function spawnFoe(){foes.push({x:rand(2200),y:rand(2200),r:12+Math.random()*18});}
 function spawnTitan(){const a=Math.random()*Math.PI*2,d=800+Math.random()*600;titans.push({x:player.x+Math.cos(a)*d,y:player.y+Math.sin(a)*d,r:28+Math.random()*30});}
-
-/* initial population */
 spawnFood(); for(let i=0;i<10;i++)spawnFoe();
 
-/* =========================================================
-   Game loop
-========================================================= */
+/* ===== Main loop ===== */
 let last=0,accX=0,accY=0;
 function loop(ts){
   if(paused){last=ts;return requestAnimationFrame(loop);}
   const dt=(ts-last||16)/16.6; last=ts;
 
-  /* ---- move player ---- */
+  /* move player */
   const dx=(target.down?target.x:player.x)-player.x,
         dy=(target.down?target.y:player.y)-player.y,
-        len=Math.hypot(dx,dy);
-  const sp=2.7*(1+player.m*MASS_SPEED_F)*(player.boost>0?1.3:1);
+        len=Math.hypot(dx,dy),
+        sp=2.7*(1+player.m*MASS_SPEED_F)*(player.boost>0?1.3:1);
   if(len>1){player.x+=dx/len*sp; player.y+=dy/len*sp;}
   if(player.boost>0)player.boost-=dt*16;
   player.m-= (MASS_DECAY_BASE*player.r*player.r+MASS_DECAY_EXTRA)*dt;
-  player.m=Math.max(5,player.m);
-  player.r=10+player.m/15;
+  player.m=Math.max(5,player.m); player.r=10+player.m/15;
 
-  /* ---- eat food ---- */
-  for(let i=food.length-1;i>=0;i--){
+  /* eat food */
+  for(let i=food.length-1;i>=0;i--)
     if(dist(player.x,player.y,food[i].x,food[i].y)<player.r+food[i].r){
-      player.m+=food[i].r*0.8; food.splice(i,1);
-      navigator.vibrate?.(10);
+      player.m+=food[i].r*0.8; food.splice(i,1); navigator.vibrate?.(10);
     }
-  }
   spawnFood();
 
-  /* ---- foes ---- */
+  /* foes logic */
   while(foes.length<MAX_FOES)spawnFoe();
   foes.forEach((f,i)=>{
     const d=dist(player.x,player.y,f.x,f.y),v=f.r>player.r?1.8:1;
-    if(d<player.r && player.r>f.r){player.m+=f.r*2; foes.splice(i,1);return;}
+    if(d<player.r && player.r>f.r){player.m+=f.r*2; foes.splice(i,1); return;}
     if(d<player.r && player.r<f.r){player.m-=f.r*0.3; player.blink=10;}
     if(d<300){f.x+=(f.r>player.r?1:-1)*(player.x-f.x)/d*v; f.y+=(f.r>player.r?1:-1)*(player.y-f.y)/d*v;}
   });
 
-  /* ---- titans ---- */
+  /* titans */
   if(player.m>MASS_TITAN && titans.length<MAX_TITANS)spawnTitan();
   titans.forEach((t,j)=>{
     const d=dist(player.x,player.y,t.x,t.y);
@@ -237,37 +184,30 @@ function loop(ts){
     if(d<player.r && player.r<t.r){player.m-=t.r*0.4; player.blink=14;}
   });
 
-  /* ---- tail ---- */
+  /* tail */
   player.tail.unshift({x:player.x,y:player.y});
   while(player.tail.length>Math.min(80,Math.ceil(player.m/2)))player.tail.pop();
 
-  /* ---- camera ---- */
+  /* camera */
   cam.x+=((W/2-player.x*zoom)-cam.x)*0.12;
   cam.y+=((H/2-player.y*zoom)-cam.y)*0.12;
 
-  /* =====================================================
-     Canvas clear & DPR-aware transform  ( **FIX** )
-  ===================================================== */
-  ctx.save();
-  ctx.setTransform(1,0,0,1,0,0);
-  ctx.clearRect(0,0,cMain.width,cMain.height);
-  ctx.restore();
+  /* canvas clear & DPR transform */
+  ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,cMain.width,cMain.height); ctx.restore();
+  ctx.setTransform(DPR*zoom,0,0,DPR*zoom,cam.x*DPR,cam.y*DPR);
 
-  ctx.setTransform(DPR*zoom,0,0,DPR*zoom, cam.x*DPR, cam.y*DPR);
-
-  /* ---- backdrop ---- */
+  /* backdrop */
   drawBack(accX,accY);
 
-  /* ---- draw world ---- */
-  const onScr=(x,y,r)=>!(x+r<player.x-W/(2*zoom)|| x-r>player.x+W/(2*zoom)|| y+r<player.y-H/(2*zoom)|| y-r>player.y+H/(2*zoom));
+  /* draw world */
+  const onScr=(x,y,r)=>!(x+r<player.x-W/(2*zoom)||x-r>player.x+W/(2*zoom)||y+r<player.y-H/(2*zoom)||y-r>player.y+H/(2*zoom));
   const glow=(x,y,r,c,a=1)=>{
     if(!onScr(x,y,r))return;
-    ctx.globalAlpha=a; ctx.shadowBlur=12; ctx.shadowColor=c;
-    ctx.fillStyle=c; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+    ctx.globalAlpha=a; ctx.shadowBlur=12; ctx.shadowColor=c; ctx.fillStyle=c;
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
     ctx.shadowBlur=0; ctx.globalAlpha=1;
   };
-
-  food.forEach(f=>glow(f.x,f.y,f.r,'#ff0',0.6));
+  food .forEach(f=>glow(f.x,f.y,f.r,'#ff0',0.6));
   foes .forEach(f=>glow(f.x,f.y,f.r,'#f44',0.8));
   titans.forEach(t=>glow(t.x,t.y,t.r,'#cc00ff',0.9));
 
@@ -276,10 +216,10 @@ function loop(ts){
     const p=player.tail[i],frac=i/player.tail.length;
     glow(p.x,p.y,player.r*(1-frac),`hsla(${200+160*frac},100%,60%,.3)`,0.25);
   }
-  glow(player.x,player.y,player.r, player.blink>0?(player.blink%6<3?'#fff':'#ff55ff'):'var(--cyan)',1);
+  glow(player.x,player.y,player.r,player.blink>0?(player.blink%6<3?'#fff':'#ff55ff'):CYAN,1);
   if(player.blink>0)player.blink-=dt*2;
 
-  /* ---- HUD ---- */
+  /* HUD */
   mVal.textContent=player.m.toFixed(0);
   sVal.textContent=Math.floor(player.m*10);
   lVal.textContent=Math.floor(player.m/100)+1;
@@ -289,18 +229,12 @@ function loop(ts){
 }
 requestAnimationFrame(loop);
 
-/* =========================================================
-   Device-orientation parallax
-========================================================= */
-if(DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission==='function'){
+/* device-orientation parallax */
+if(DeviceMotionEvent&&typeof DeviceMotionEvent.requestPermission==='function'){
   addEventListener('pointerdown',()=>DeviceMotionEvent.requestPermission().catch(()=>{}),{once:true});
 }
 addEventListener('deviceorientation',e=>{
-  if(e.beta!=null){
-    const k=0.03;
-    accX=e.gamma*k;
-    accY=e.beta *k;
-  }
+  if(e.beta!=null){const k=0.03; accX=e.gamma*k; accY=e.beta*k;}
 });
 </script>
 </body>
